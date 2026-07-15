@@ -5,7 +5,7 @@ const DB_PATH = path.join(__dirname, 'db.json');
 
 // Initialize empty DB file if it doesn't exist
 if (!fs.existsSync(DB_PATH)) {
-  fs.writeFileSync(DB_PATH, JSON.stringify({ users: [] }, null, 2), 'utf8');
+  fs.writeFileSync(DB_PATH, JSON.stringify({ users: [], chats: [] }, null, 2), 'utf8');
 }
 
 function readData() {
@@ -67,6 +67,70 @@ const db = {
     };
     writeData(data);
     return data.users[index];
+  },
+
+  getChats: () => {
+    return readData().chats || [];
+  },
+
+  getChatsByUser: (userId) => {
+    const chats = db.getChats();
+    const uIdStr = userId ? userId.toString() : '';
+    return chats.filter(c => c.userId && c.userId.toString() === uIdStr);
+  },
+
+  getChatById: (id) => {
+    const chats = db.getChats();
+    return chats.find(c => c.id === id || (c._id && c._id.toString() === id));
+  },
+
+  createChat: (chatData) => {
+    const data = readData();
+    if (!data.chats) data.chats = [];
+
+    const newChat = {
+      id: Date.now().toString(),
+      _id: Date.now().toString(),
+      userId: chatData.userId ? chatData.userId.toString() : null,
+      title: chatData.title || 'New Chat',
+      messages: chatData.messages || [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    data.chats.push(newChat);
+    writeData(data);
+    return newChat;
+  },
+
+  updateChat: (id, updates) => {
+    const data = readData();
+    if (!data.chats) data.chats = [];
+
+    const index = data.chats.findIndex(c => c.id === id || (c._id && c._id.toString() === id));
+    if (index === -1) return null;
+
+    data.chats[index] = {
+      ...data.chats[index],
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    writeData(data);
+    return data.chats[index];
+  },
+
+  deleteChat: (id) => {
+    const data = readData();
+    if (!data.chats) data.chats = [];
+
+    const initialLength = data.chats.length;
+    data.chats = data.chats.filter(c => c.id !== id && (!c._id || c._id.toString() !== id));
+
+    if (data.chats.length !== initialLength) {
+      writeData(data);
+      return true;
+    }
+    return false;
   }
 };
 

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useChat } from '../hooks/useChat';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Sparkles, User, History, LogOut, Activity,
   MessageSquare, AlertCircle, Plus, Menu, X,
-  ChevronLeft, PanelLeftClose, PanelLeftOpen, Trash2, Edit3, Check, Trash
+  PanelLeftClose, PanelLeftOpen, Edit3, Check, Trash
 } from 'lucide-react';
 
 function Chat() {
@@ -17,192 +18,165 @@ function Chat() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
   const [editingChatId, setEditingChatId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  // Default welcome text generator
-  const getWelcomeMessage = (userName) => ({
-    id: 'welcome-' + Date.now(),
-    sender: 'ai',
-    text: `Hello ${userName || 'there'}! I am AskCare, your SLM-powered clinical query resolution assistant. What symptoms or medical questions can I clarify for you today?`,
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  });
-
-  // Conversations State
-  const [conversations, setConversations] = useState(() => {
-    const saved = localStorage.getItem('askcare_chats');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse chats', e);
-      }
-    }
-    return [
-      {
-        id: 'chat-1',
-        title: 'Initial Consultation',
-        messages: [getWelcomeMessage(user?.name)]
-      }
-    ];
-  });
+  // Use Custom Chat Hook
+  const {
+    conversations,
+    activeChat,
+    setActiveChat,
+    loading,
+    error,
+    setError,
+    fetchHistory,
+    fetchChatDetails,
+    sendMessage,
+    deleteChat,
+    renameChat
+  } = useChat();
 
   const [activeChatId, setActiveChatId] = useState(() => {
-    const savedActive = localStorage.getItem('askcare_active_chat');
-    return savedActive || 'chat-1';
+    return localStorage.getItem('askcare_active_chat') || null;
   });
 
-  // Sync to localStorage
+  // Load history on mount
   useEffect(() => {
-    localStorage.setItem('askcare_chats', JSON.stringify(conversations));
-  }, [conversations]);
+    fetchHistory();
+  }, [fetchHistory]);
 
+  // Load specific chat when activeChatId changes
   useEffect(() => {
-    localStorage.setItem('askcare_active_chat', activeChatId);
-  }, [activeChatId]);
+    if (activeChatId) {
+      fetchChatDetails(activeChatId);
+      localStorage.setItem('askcare_active_chat', activeChatId);
+    } else {
+      setActiveChat(null); // Clear the activeChat details so welcome screen renders
+      localStorage.removeItem('askcare_active_chat');
+    }
+  }, [activeChatId, fetchChatDetails, setActiveChat]);
+
+  // Auto-select first chat or load saved chat only ONCE on initial mount
+  useEffect(() => {
+    if (!loading && isInitialLoad) {
+      if (conversations.length > 0) {
+        const savedActive = localStorage.getItem('askcare_active_chat');
+        const exists = conversations.some(c => (c.id || c._id) === savedActive);
+        if (savedActive && exists) {
+          setActiveChatId(savedActive);
+        } else {
+          setActiveChatId(conversations[0].id || conversations[0]._id);
+        }
+      } else {
+        setActiveChatId(null);
+      }
+      setIsInitialLoad(false);
+    }
+  }, [conversations, loading, isInitialLoad]);
 
   // Autoscroll to bottom
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [conversations, activeChatId, isTyping]);
+  }, [activeChat, loading]);
 
-  // Helper: Get active chat object
-  const activeChat = conversations.find(c => c.id === activeChatId) || conversations[0] || { id: '', title: '', messages: [] };
-
-  // 1. Create a New Chat
-  const handleNewChat = () => {
-    const newId = 'chat-' + Date.now();
-    const newChatObj = {
-      id: newId,
-      title: 'New Consultation',
-      messages: [getWelcomeMessage(user?.name)]
-    };
-    setConversations(prev => [newChatObj, ...prev]);
-    setActiveChatId(newId);
-    setMobileSidebarOpen(false);
+  // Welcome message template for empty state
+  const welcomeMessage = {
+    id: 'welcome',
+    _id: 'welcome',
+    sender: 'ai',
+    content: `Hello ${user?.name || 'there'}! I am AskCare, your SLM-powered clinical query resolution assistant. What symptoms or medical questions can I clarify for you today?`,
+    timestamp: new Date().toISOString(),
   };
 
-  // 2. Delete a Chat
-  const handleDeleteChat = (idToDelete, e) => {
-    e.stopPropagation(); // Prevent setting as active
-
-    // Don't delete last chat completely; just reset it or create a new one
-    if (conversations.length === 1) {
-      const newId = 'chat-' + Date.now();
-      setConversations([
-        {
-          id: newId,
-          title: 'Initial Consultation',
-          messages: [getWelcomeMessage(user?.name)]
-        }
-      ]);
-      setActiveChatId(newId);
-      return;
+  // Helper to format ISO timestamps nicely
+  const formatTime = (timestamp) => {
+    if (!timestamp) return '';
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return timestamp;
     }
+  };
 
-    const filtered = conversations.filter(c => c.id !== idToDelete);
-    setConversations(filtered);
+  // Get messages list to render (fallback to welcome if empty/new)
+  const messagesToRender = (activeChat && activeChat.messages && activeChat.messages.length > 0)
+    ? activeChat.messages
+    : [welcomeMessage];
 
-    // If active chat is deleted, switch active chat
-    if (activeChatId === idToDelete) {
-      setActiveChatId(filtered[0].id);
+  // 1. Create a New Chat Session (Local trigger, resets active session)
+  const handleNewChat = () => {
+    setActiveChatId(null);
+    setActiveChat(null);
+    setMobileSidebarOpen(false);
+    setError(null);
+  };
+
+  // 2. Delete a Chat Session
+  const handleDeleteChat = async (idToDelete, e) => {
+    e.stopPropagation(); // Prevent setting as active
+    
+    if (window.confirm('Are you sure you want to delete this conversation?')) {
+      const success = await deleteChat(idToDelete);
+      if (success) {
+        if (activeChatId === idToDelete) {
+          const remaining = conversations.filter(c => {
+            const id = c.id || c._id;
+            return id !== idToDelete;
+          });
+          if (remaining.length > 0) {
+            const nextId = remaining[0].id || remaining[0]._id;
+            setActiveChatId(nextId);
+          } else {
+            setActiveChatId(null);
+          }
+        }
+      }
     }
   };
 
   // 3. Start Rename Chat
   const startRenameChat = (chat, e) => {
     e.stopPropagation();
-    setEditingChatId(chat.id);
+    const id = chat.id || chat._id;
+    setEditingChatId(id);
     setEditTitle(chat.title);
   };
 
   // 4. Save Chat Rename
-  const saveRenameChat = (idToRename, e) => {
+  const saveRenameChat = async (idToRename, e) => {
     e.stopPropagation();
     if (editTitle.trim()) {
-      setConversations(prev => prev.map(c => {
-        if (c.id === idToRename) {
-          return { ...c, title: editTitle.trim() };
-        }
-        return c;
-      }));
+      await renameChat(idToRename, editTitle.trim());
     }
     setEditingChatId(null);
   };
 
-  // 5. Send Message Logic
-  const handleSendMessage = (e) => {
+  // 5. Send Message Logic (interacts with backend)
+  const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
-    if (!input.trim() || isTyping) return;
+    if (!input.trim() || loading) return;
 
     const userQuery = input.trim();
     setInput('');
-    setIsTyping(true);
+    setError(null);
 
-    const userMsg = {
-      id: 'msg-' + Date.now(),
-      sender: 'user',
-      text: userQuery,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    // Update active chat's messages
-    setConversations(prev => prev.map(c => {
-      if (c.id === activeChatId) {
-        // If it's a default/new title, auto-rename based on first user query
-        const isDefaultTitle = c.title === 'New Consultation' || c.title === 'Initial Consultation';
-        const updatedTitle = isDefaultTitle
-          ? (userQuery.length > 25 ? userQuery.substring(0, 22) + '...' : userQuery)
-          : c.title;
-
-        return {
-          ...c,
-          title: updatedTitle,
-          messages: [...c.messages, userMsg]
-        };
+    try {
+      // Send message to backend (auto creates chat if activeChatId is null)
+      const updatedChat = await sendMessage(userQuery, activeChatId);
+      if (updatedChat) {
+        const newId = updatedChat.id || updatedChat._id;
+        setActiveChatId(newId);
       }
-      return c;
-    }));
-
-    // Simulate clinical SLM response stream
-    setTimeout(() => {
-      setIsTyping(false);
-
-      let aiResponseText = '';
-      const lowercaseQuery = userQuery.toLowerCase();
-
-      if (lowercaseQuery.includes('diabetes')) {
-        aiResponseText = "Diabetes is a chronic metabolic condition characterized by elevated blood glucose levels. Typically, it arises either because the pancreas does not produce enough insulin (Type 1) or because cells become resistant to insulin (Type 2). Key symptoms include frequent urination, extreme thirst, and unexplained weight loss. We recommend tracking fasting blood sugar levels and consulting a physician for custom care.";
-      } else if (lowercaseQuery.includes('pressure') || lowercaseQuery.includes('hypertension') || lowercaseQuery.includes('bp')) {
-        aiResponseText = "Hypertension, or high blood pressure, refers to arterial pressures consistently exceeding 130/80 mmHg. It is often referred to as a 'silent killer' because it seldom displays overt symptoms until advanced stages. To manage it, reduce daily sodium intake to below 2,000 mg, engage in moderate cardiovascular exercise, and monitor readings twice daily.";
-      } else if (lowercaseQuery.includes('fever')) {
-        aiResponseText = "A fever indicates your body's immune system is responding to an infection. For adults, a mild fever (under 101°F / 38.3°C) usually does not require treatment unless uncomfortable. Rest and hydration are primary. If the fever exceeds 103°F (39.4°C), lasts more than 3 days, or is accompanied by severe head/neck aches, seek immediate professional evaluation.";
-      } else {
-        aiResponseText = `Thank you for your inquiry about "${userQuery}". As a clinical assistant running on a local Small Language Model (SLM), I have processed your input. Please maintain hydration, monitor physical symptoms, and speak with a licensed clinician for a formal diagnosis. Let me know if you would like me to detail standard clinical guidelines for similar presentations.`;
-      }
-
-      const aiMsg = {
-        id: 'msg-' + (Date.now() + 1),
-        sender: 'ai',
-        text: aiResponseText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      setConversations(prev => prev.map(c => {
-        if (c.id === activeChatId) {
-          return {
-            ...c,
-            messages: [...c.messages, aiMsg]
-          };
-        }
-        return c;
-      }));
-    }, 1600);
+    } catch (err) {
+      console.error('Failed to send message:', err);
+    }
   };
 
   const handleLogout = () => {
-    navigate('/', { state: { logout: true }, replace: true });
+    logout();
+    navigate('/login');
   };
 
   // Render standard sidebar content
@@ -247,14 +221,15 @@ function Chat() {
         </div>
 
         {conversations.map(chat => {
-          const isActive = chat.id === activeChatId;
-          const isEditing = chat.id === editingChatId;
+          const chatActualId = chat.id || chat._id;
+          const isActive = chatActualId === activeChatId;
+          const isEditing = chatActualId === editingChatId;
 
           return (
             <div
-              key={chat.id}
+              key={chatActualId}
               onClick={() => {
-                setActiveChatId(chat.id);
+                setActiveChatId(chatActualId);
                 setMobileSidebarOpen(false);
               }}
               className={`group flex items-center justify-between rounded-xl px-3 py-2.5 text-xs font-semibold cursor-pointer transition-all ${isActive
@@ -271,7 +246,7 @@ function Chat() {
                     onChange={(e) => setEditTitle(e.target.value)}
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') saveRenameChat(chat.id, e);
+                      if (e.key === 'Enter') saveRenameChat(chatActualId, e);
                       if (e.key === 'Escape') setEditingChatId(null);
                     }}
                     className="w-full bg-[#0B0E14] border border-brand-neon text-white rounded px-1.5 py-0.5 text-xs focus:outline-none"
@@ -293,7 +268,7 @@ function Chat() {
                     <Edit3 className="h-3 w-3" />
                   </button>
                   <button
-                    onClick={(e) => handleDeleteChat(chat.id, e)}
+                    onClick={(e) => handleDeleteChat(chatActualId, e)}
                     className="p-1 hover:bg-red-950/80 text-gray-500 hover:text-red-400 rounded cursor-pointer"
                     title="Delete conversation"
                   >
@@ -305,7 +280,7 @@ function Chat() {
               {isEditing && (
                 <div className="flex items-center gap-1 shrink-0">
                   <button
-                    onClick={(e) => saveRenameChat(chat.id, e)}
+                    onClick={(e) => saveRenameChat(chatActualId, e)}
                     className="p-1 bg-brand-neon/20 hover:bg-brand-neon/30 text-brand-neon rounded cursor-pointer"
                   >
                     <Check className="h-3.5 w-3.5" />
@@ -448,12 +423,28 @@ function Chat() {
         {/* Message Window Area */}
         <div className="flex-grow overflow-y-auto p-4 md:p-6 space-y-5 bg-[#0B0E14] relative z-10">
           <div className="max-w-4xl mx-auto space-y-5">
+            
+            {/* Error Banner */}
+            {error && (
+              <div className="flex items-center gap-2.5 p-3.5 bg-red-950/40 border border-red-800/30 text-red-200 rounded-xl text-xs font-sans">
+                <AlertCircle className="h-4.5 w-4.5 text-red-400 shrink-0" />
+                <span className="flex-grow">{error}</span>
+                <button
+                  onClick={() => setError(null)}
+                  className="text-[10px] uppercase font-extrabold tracking-wider text-red-400 hover:text-white cursor-pointer px-1.5 py-0.5 rounded hover:bg-red-900/30"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
             <AnimatePresence initial={false}>
-              {activeChat.messages.map((msg) => {
+              {messagesToRender.map((msg, index) => {
                 const isAI = msg.sender === 'ai';
+                const messageId = msg._id || msg.id || `msg-${index}`;
                 return (
                   <motion.div
-                    key={msg.id}
+                    key={messageId}
                     initial={{ opacity: 0, y: 15 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3 }}
@@ -469,18 +460,18 @@ function Chat() {
                           {isAI && <Sparkles className="h-3.5 w-3.5 text-brand-neon" />}
                           {isAI ? 'ASKCARE AI' : 'YOU'}
                         </span>
-                        <span className="font-light text-gray-500">{msg.timestamp}</span>
+                        <span className="font-light text-gray-500">{formatTime(msg.timestamp)}</span>
                       </div>
 
                       {/* Message Content */}
-                      <p className="whitespace-pre-wrap text-[13px] sm:text-sm font-sans">{msg.text}</p>
+                      <p className="whitespace-pre-wrap text-[13px] sm:text-sm font-sans">{msg.content}</p>
                     </div>
                   </motion.div>
                 );
               })}
 
-              {/* Typing Animation */}
-              {isTyping && (
+              {/* Typing Animation (shown during API loads) */}
+              {loading && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -523,11 +514,11 @@ function Chat() {
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask about clinical symptoms, medications, or lab diagnostics..."
               className="w-full bg-[#11141C] border border-gray-800 rounded-xl px-4 py-4 pr-14 text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-neon focus:ring-1 focus:ring-brand-neon/30 transition-all duration-200 font-sans"
-              disabled={isTyping}
+              disabled={loading}
             />
             <button
               type="submit"
-              disabled={isTyping || !input.trim()}
+              disabled={loading || !input.trim()}
               className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center h-10 w-10 bg-brand-neon hover:bg-[#c6f000] disabled:bg-gray-800/40 text-black disabled:text-gray-600 font-extrabold rounded-xl transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 shadow shadow-brand-neon/10 disabled:shadow-none disabled:scale-100"
             >
               <Send className="h-4.5 w-4.5" />

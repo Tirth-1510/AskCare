@@ -339,7 +339,11 @@ app.post('/api/auth/resend-otp', async (req, res) => {
   }
 });
 
+// Chat Routes
+const chatRoutes = require('./routes/chatRoutes');
+app.use('/api/chat', chatRoutes);
+
 // Start Server
 app.listen(PORT, () => {
-  console.log(`🚀 AskCare Auth Server is running on port ${PORT}`);
+  console.log(`🚀 AskCare Server is running on port ${PORT}`);
 });
