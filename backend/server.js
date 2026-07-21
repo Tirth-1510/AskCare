@@ -343,6 +343,10 @@ app.post('/api/auth/resend-otp', async (req, res) => {
 const chatRoutes = require('./routes/chatRoutes');
 app.use('/api/chat', chatRoutes);
 
+// Document Routes (RAG)
+const documentRoutes = require('./routes/documentRoutes');
+app.use('/api/documents', documentRoutes);
+
 // Start Server
 app.listen(PORT, () => {
   console.log(`🚀 AskCare Server is running on port ${PORT}`);

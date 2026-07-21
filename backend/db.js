@@ -131,6 +131,90 @@ const db = {
       return true;
     }
     return false;
+  },
+
+  getDocuments: () => {
+    return readData().documents || [];
+  },
+
+  getDocumentsByUser: (userId) => {
+    const documents = db.getDocuments();
+    const uIdStr = userId ? userId.toString() : '';
+    return documents.filter(d => d.userId && d.userId.toString() === uIdStr);
+  },
+
+  getDocumentById: (id) => {
+    const documents = db.getDocuments();
+    return documents.find(d => d.id === id || (d._id && d._id.toString() === id));
+  },
+
+  createDocument: (docData) => {
+    const data = readData();
+    if (!data.documents) data.documents = [];
+
+    const newDoc = {
+      id: Date.now().toString(),
+      _id: Date.now().toString(),
+      userId: docData.userId ? docData.userId.toString() : null,
+      filename: docData.filename || '',
+      fileSize: docData.fileSize || 0,
+      chunkCount: docData.chunkCount || 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    data.documents.push(newDoc);
+    writeData(data);
+    return newDoc;
+  },
+
+  deleteDocument: (id) => {
+    const data = readData();
+    if (!data.documents) data.documents = [];
+    if (!data.chunks) data.chunks = [];
+
+    const initialLength = data.documents.length;
+    data.documents = data.documents.filter(d => d.id !== id && (!d._id || d._id.toString() !== id));
+    
+    // Also delete associated chunks
+    data.chunks = data.chunks.filter(c => c.documentId !== id && (!c.documentId || c.documentId.toString() !== id));
+
+    if (data.documents.length !== initialLength) {
+      writeData(data);
+      return true;
+    }
+    return false;
+  },
+
+  getChunks: () => {
+    return readData().chunks || [];
+  },
+
+  getChunksByUser: (userId) => {
+    const chunks = db.getChunks();
+    const uIdStr = userId ? userId.toString() : '';
+    return chunks.filter(c => c.userId && c.userId.toString() === uIdStr);
+  },
+
+  createChunk: (chunkData) => {
+    const data = readData();
+    if (!data.chunks) data.chunks = [];
+
+    const newChunk = {
+      id: (Date.now() + Math.random()).toString(),
+      _id: (Date.now() + Math.random()).toString(),
+      documentId: chunkData.documentId ? chunkData.documentId.toString() : null,
+      userId: chunkData.userId ? chunkData.userId.toString() : null,
+      text: chunkData.text || '',
+      embedding: chunkData.embedding || [],
+      pageNumber: chunkData.pageNumber || 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    data.chunks.push(newChunk);
+    writeData(data);
+    return newChunk;
   }
 };
 

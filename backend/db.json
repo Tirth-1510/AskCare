@@ -56,5 +56,28 @@
       "updatedAt": "2026-07-12T16:20:50.563Z"
     }
   ],
-  "chats": []
+  "chats": [
+    {
+      "id": "1784658253157",
+      "_id": "1784658253157",
+      "userId": "6a5fb944ccc74484c54e9292",
+      "title": "What is the paracetamol ped...",
+      "messages": [
+        {
+          "sender": "user",
+          "content": "What is the paracetamol pediatric dose for fever?",
+          "timestamp": "2026-07-21T18:24:11.375Z"
+        },
+        {
+          "sender": "ai",
+          "content": "The recommended pediatric dose of paracetamol (acetaminophen) for fever is 15mg/kg every 4 to 6 hours as needed.\n\nDisclaimer: This information is for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a healthcare professional for clinical concerns.",
+          "timestamp": "2026-07-21T18:24:13.157Z"
+        }
+      ],
+      "createdAt": "2026-07-21T18:24:13.157Z",
+      "updatedAt": "2026-07-21T18:24:13.157Z"
+    }
+  ],
+  "documents": [],
+  "chunks": []
 }

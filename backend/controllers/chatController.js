@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Chat = require('../models/Chat');
 const db = require('../db');
 const aiService = require('../services/ai.service');
+const documentController = require('./documentController');
 require('dotenv').config();
 
 // Determine database mode
@@ -59,8 +60,11 @@ exports.createOrUpdateChat = async (req, res) => {
     // Append current prompt for the LLM
     chatHistory.push(userMessage);
 
-    // Call Gemma 3 AI service
-    const aiResponse = await aiService.generateResponse(chatHistory);
+    // Retrieve relevant clinical document context (RAG)
+    const context = await documentController.retrieveRelevantContext(userId, userPrompt);
+
+    // Call Gemma 3 AI service with retrieved context
+    const aiResponse = await aiService.generateResponse(chatHistory, context);
     const aiMessage = { sender: 'ai', content: aiResponse, timestamp: new Date() };
 
     // A. Continue Existing Chat

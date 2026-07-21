@@ -77,7 +77,7 @@ const fetchSmolLMCompletion = async (messages) => {
 };
 
 // Local medical simulation client (runs when GEMMA_API_KEY is not configured or when API queries fail)
-const getMockMedicalAnswer = (message) => {
+const getMockMedicalAnswer = (message, context = '') => {
   const msg = message.toLowerCase().trim();
 
   // Check if query is off-topic
@@ -113,15 +113,20 @@ const getMockMedicalAnswer = (message) => {
     clinicalGuidance = `Thank you for sharing your concern: "${message}". We recommend monitoring your physical symptoms closely, staying well-hydrated, and consulting a healthcare professional for an accurate diagnosis and treatment plan.`;
   }
 
+  if (context) {
+    clinicalGuidance += `\n\n[Clinical Context: ${context}]`;
+  }
+
   return `${clinicalGuidance}\n\nDisclaimer: This information is for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a healthcare professional for clinical concerns.`;
 };
 
 /**
  * Generate AI clinical guidance for a user query.
  * @param {Array<{sender: string, content: string}>} chatHistory 
+ * @param {string} [context] Optional retrieved clinical document context
  * @returns {Promise<string>} response string
  */
-exports.generateResponse = async (chatHistory) => {
+exports.generateResponse = async (chatHistory, context = '') => {
   const apiKey = process.env.SMOLLM_API_KEY;
   const apiUrl = process.env.SMOLLM_API_URL || '';
   const isLocal = apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1');
@@ -132,7 +137,7 @@ exports.generateResponse = async (chatHistory) => {
   const userPrompt = lastUserMsgObj ? lastUserMsgObj.content : '';
 
   if (!isLocal && isKeyPlaceholder) {
-    return getMockMedicalAnswer(userPrompt);
+    return getMockMedicalAnswer(userPrompt, context);
   }
 
   try {
@@ -142,10 +147,20 @@ exports.generateResponse = async (chatHistory) => {
       content: msg.content
     }));
 
-    return await fetchSmolLMCompletion(messages);
+    const initialMessages = [];
+    if (context) {
+      initialMessages.push({
+        role: 'system',
+        content: `Relevant clinical context from patient's uploaded documents:\n${context}\nUse this information if helpful to answer the user's query.`
+      });
+    }
+
+    const finalMessages = [...initialMessages, ...messages];
+
+    return await fetchSmolLMCompletion(finalMessages);
   } catch (error) {
     console.error('SmolLM3-3B Integration Error:', error.message);
     // Fallback to local clinical mock simulation instead of a connection error message
-    return getMockMedicalAnswer(userPrompt);
+    return getMockMedicalAnswer(userPrompt, context);
   }
 };

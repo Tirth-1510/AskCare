@@ -20,7 +20,8 @@ function Chat() {
   const [input, setInput] = useState('');
   const [editingChatId, setEditingChatId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [hasAttemptedAutoSelect, setAttemptedAutoSelect] = useState(false);
 
   // Use Custom Chat Hook
   const {
@@ -43,7 +44,7 @@ function Chat() {
 
   // Load history on mount
   useEffect(() => {
-    fetchHistory();
+    fetchHistory().then(() => setHistoryLoaded(true));
   }, [fetchHistory]);
 
   // Load specific chat when activeChatId changes
@@ -57,9 +58,9 @@ function Chat() {
     }
   }, [activeChatId, fetchChatDetails, setActiveChat]);
 
-  // Auto-select first chat or load saved chat only ONCE on initial mount
+  // Auto-select first chat or load saved chat only ONCE after history has loaded
   useEffect(() => {
-    if (!loading && isInitialLoad) {
+    if (historyLoaded && !hasAttemptedAutoSelect) {
       if (conversations.length > 0) {
         const savedActive = localStorage.getItem('askcare_active_chat');
         const exists = conversations.some(c => (c.id || c._id) === savedActive);
@@ -71,9 +72,9 @@ function Chat() {
       } else {
         setActiveChatId(null);
       }
-      setIsInitialLoad(false);
+      setAttemptedAutoSelect(true);
     }
-  }, [conversations, loading, isInitialLoad]);
+  }, [historyLoaded, conversations, hasAttemptedAutoSelect]);
 
   // Autoscroll to bottom
   useEffect(() => {
