@@ -1,7 +1,7 @@
 services:
   # Unified Web Service (Express Server + React Static Assets)
   - type: web
-    name: askcare
+    name: askcare-app
     env: node
     plan: starter
     buildCommand: npm run build
