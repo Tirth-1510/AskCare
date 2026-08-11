@@ -38,6 +38,12 @@ services:
     rootDir: frontend
     buildCommand: npm install && npm run build
     publishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: askcare-backend
+          property: url
     headers:
       - path: /*
         name: Cache-Control
