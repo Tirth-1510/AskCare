@@ -347,6 +347,15 @@ app.use('/api/chat', chatRoutes);
 const documentRoutes = require('./routes/documentRoutes');
 app.use('/api/documents', documentRoutes);
 
+// Serve frontend static assets in production
+const path = require('path');
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
+
+// Fallback all other routes to index.html for client-side routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+});
+
 // Start Server
 app.listen(PORT, () => {
   console.log(`🚀 AskCare Server is running on port ${PORT}`);

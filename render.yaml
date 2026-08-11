@@ -1,11 +1,10 @@
 services:
-  # Backend Web Service (Node.js Express App)
+  # Unified Web Service (Express Server + React Static Assets)
   - type: web
-    name: askcare-backend
+    name: askcare
     env: node
     plan: starter
-    rootDir: backend
-    buildCommand: npm install
+    buildCommand: npm run build
     startCommand: npm start
     envVars:
       - key: PORT
@@ -30,21 +29,3 @@ services:
         value: https://router.huggingface.co/v1/chat/completions
       - key: SMOLLM_MODEL_NAME
         value: google/gemma-3-4b-it
-
-  # Frontend Static Site (Vite React App)
-  - type: static
-    name: askcare-frontend
-    env: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    publishPath: dist
-    envVars:
-      - key: VITE_API_URL
-        fromService:
-          type: web
-          name: askcare-backend
-          property: url
-    headers:
-      - path: /*
-        name: Cache-Control
-        value: public, max-age=0, must-revalidate
