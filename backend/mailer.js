@@ -5,6 +5,26 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6 digits
 }
 
+let cachedTransporter = null;
+
+function getTransporter() {
+  if (!cachedTransporter) {
+    cachedTransporter = nodemailer.createTransport({
+      pool: true,
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_PORT === '465',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      maxConnections: 3,
+      maxMessages: 100,
+    });
+  }
+  return cachedTransporter;
+}
+
 async function sendOTPEmail(email, otp, purpose = 'Verification') {
   // Check if SMTP is configured AND the password has been changed from the default placeholder
   const hasSmtp = process.env.SMTP_HOST && 
@@ -23,15 +43,7 @@ async function sendOTPEmail(email, otp, purpose = 'Verification') {
 
   if (hasSmtp) {
     try {
-      const transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: process.env.SMTP_PORT === '465',
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
-        },
-      });
+      const transporter = getTransporter();
 
       const mailOptions = {
         from: `"AskCare AI Assist" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,

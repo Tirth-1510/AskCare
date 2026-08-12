@@ -396,20 +396,13 @@ function Login() {
                     </div>
 
                     {/* Social Buttons */}
-                    <div className="flex gap-4">
+                    <div>
                         <button
                             onClick={() => triggerNotification('Google Sign-In Initiated')}
-                            className="w-1/2 bg-brand-neon text-black font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-xs hover:bg-[#c6f000] hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 cursor-pointer font-sans"
+                            className="w-full bg-brand-neon text-black font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-s hover:bg-[#c6f000] hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 cursor-pointer font-sans"
                         >
-                            <GoogleIcon fill="#000000" className="w-3.5 h-3.5" />
+                            <GoogleIcon fill="#000000" className="w-3.5 h-5" />
                             <span>Google</span>
-                        </button>
-                        <button
-                            onClick={() => triggerNotification('Facebook Sign-In Initiated')}
-                            className="w-1/2 bg-brand-neon text-black font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-xs hover:bg-[#c6f000] hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 cursor-pointer font-sans"
-                        >
-                            <FacebookIcon fill="#000000" className="w-3.5 h-3.5" />
-                            <span>Facebook</span>
                         </button>
                     </div>
 

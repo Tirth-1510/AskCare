@@ -107,7 +107,9 @@ app.post('/api/auth/register', async (req, res) => {
         otpExpires
       });
 
-      await sendOTPEmail(email, otp, 'Registration Verification');
+      sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
+        console.error('Async sendOTPEmail error:', err);
+      });
       return res.json({ success: true, message: 'Verification OTP sent to email', email });
     }
 
@@ -125,7 +127,9 @@ app.post('/api/auth/register', async (req, res) => {
       otpExpires
     });
 
-    await sendOTPEmail(email, otp, 'Registration Verification');
+    sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
+      console.error('Async sendOTPEmail error:', err);
+    });
 
     res.json({ success: true, message: 'Registration initiated. Verification OTP sent to email', email });
   } catch (error) {
@@ -257,7 +261,9 @@ app.post('/api/auth/login-otp', async (req, res) => {
       otpExpires
     });
 
-    await sendOTPEmail(email, otp, 'Login Authentication');
+    sendOTPEmail(email, otp, 'Login Authentication').catch(err => {
+      console.error('Async sendOTPEmail error:', err);
+    });
 
     res.json({ success: true, message: 'Login OTP sent to email', email });
   } catch (error) {
@@ -330,7 +336,9 @@ app.post('/api/auth/resend-otp', async (req, res) => {
     });
 
     const emailPurpose = purpose === 'login' ? 'Login Authentication' : 'Registration Verification';
-    await sendOTPEmail(email, otp, emailPurpose);
+    sendOTPEmail(email, otp, emailPurpose).catch(err => {
+      console.error('Async sendOTPEmail error:', err);
+    });
 
     res.json({ success: true, message: 'A new code has been sent to your email.' });
   } catch (error) {
