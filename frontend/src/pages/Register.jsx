@@ -283,7 +283,7 @@ function Register() {
             <div className="w-full h-full bg-brand-bg-dark text-white flex flex-col justify-center px-6 py-8 md:px-12 lg:px-16 overflow-y-auto">
                 <div className="max-w-md w-full mx-auto">
                     <h2 className="text-3xl lg:text-4xl font-extrabold text-white tracking-wide text-center md:text-left mb-1.5 font-sans">
-                        AI Assist Registration
+                        AskCare Registration
                     </h2>
                     <p className="text-xs text-gray-400 text-center md:text-left mb-8 font-light font-sans">
                         Create an account to meet your new AI Bestie.
