@@ -5,24 +5,21 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6 digits
 }
 
-let cachedTransporter = null;
-
 function getTransporter() {
-  if (!cachedTransporter) {
-    cachedTransporter = nodemailer.createTransport({
-      pool: true,
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_PORT === '465',
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-      maxConnections: 3,
-      maxMessages: 100,
-    });
-  }
-  return cachedTransporter;
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: process.env.SMTP_PORT === '465',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+    // Serverless friendly: open and close connection on each send
+    pool: false,
+    connectionTimeout: 5000, // 5s timeout to connect
+    greetingTimeout: 5000,   // 5s timeout to handshake
+    socketTimeout: 10000,    // 10s socket activity timeout
+  });
 }
 
 async function sendOTPEmail(email, otp, purpose = 'Verification') {
