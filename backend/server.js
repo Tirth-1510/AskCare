@@ -26,20 +26,60 @@ app.use(express.json());
 const isMongoPlaceholder = !MONGODB_URI || MONGODB_URI.includes('cluster0.xxxxx.mongodb.net');
 const useMongo = !isMongoPlaceholder;
 
-if (useMongo) {
-  mongoose.connect(MONGODB_URI)
-    .then(() => console.log('✅ Connected to MongoDB Atlas successfully.'))
-    .catch(err => {
-      console.error('❌ Failed to connect to MongoDB Atlas:', err.message);
-      console.warn('⚠️ Please verify your Atlas connection URI in .env.');
+let cachedConnection = null;
+
+const connectDB = async () => {
+  if (!useMongo) return null;
+  
+  if (mongoose.connection.readyState >= 1) {
+    return mongoose.connection;
+  }
+
+  if (cachedConnection) {
+    return cachedConnection;
+  }
+
+  console.log('⏳ Connecting to MongoDB Atlas...');
+  try {
+    cachedConnection = await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000, // Fail fast (5s) to prevent serverless function hang
     });
-} else {
+    console.log('✅ Connected to MongoDB Atlas successfully.');
+    return cachedConnection;
+  } catch (err) {
+    console.error('❌ MongoDB Connection Error:', err.message);
+    cachedConnection = null;
+    throw err;
+  }
+};
+
+// Database Initialization log for local dev
+if (!useMongo) {
   console.log('\n=============================================');
   console.log('⚠️ DATABASE NOTICE: MONGODB_URI is empty or placeholder.');
   console.log('💡 STATUS: Operating in Local Fallback DB Mode (db.json)');
   console.log('💡 TIP: Add MongoDB Atlas connection string in .env to switch to Atlas.');
   console.log('=============================================\n');
 }
+
+// Middleware to ensure DB connection is ready before processing API routes
+app.use(async (req, res, next) => {
+  if (useMongo && req.path.startsWith('/api') && req.path !== '/api/diagnostics') {
+    try {
+      await connectDB();
+      next();
+    } catch (err) {
+      console.error('Database connection middleware error:', err.message);
+      res.status(500).json({
+        success: false,
+        message: 'Database connection failed. Please ensure MongoDB Atlas Network Access allows requests from Vercel (IP 0.0.0.0/0).',
+        error: err.message
+      });
+    }
+  } else {
+    next();
+  }
+});
 
 // Unified Database Helpers
 const dbHelper = {
