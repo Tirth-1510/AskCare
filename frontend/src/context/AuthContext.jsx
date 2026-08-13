@@ -137,6 +137,23 @@ export const AuthProvider = ({ children }) => {
     return res;
   };
 
+  // Google Login / Registration
+  const googleLogin = async (email, name) => {
+    const fallback = {
+      success: true,
+      message: 'Logged in successfully via Google (Simulated)',
+      token: 'simulated_jwt_token_google_12345',
+      user: { name, email }
+    };
+    
+    const res = await makeRequest(`${API_BASE}/google-login`, { email, name }, fallback);
+    if (res.success && res.token) {
+      setToken(res.token);
+      setUser(res.user);
+    }
+    return res;
+  };
+
   // 6. Resend OTP
   const resendOTP = async (email, purpose) => {
     const fallback = {
@@ -164,6 +181,7 @@ export const AuthProvider = ({ children }) => {
       register,
       verifyRegisterOTP,
       resendOTP,
+      googleLogin,
       logout
     }}>
       {children}

@@ -15,7 +15,11 @@ const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key';
 const MONGODB_URI = process.env.MONGODB_URI || '';
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
+}));
 app.use(express.json());
 
 // Determine database mode
@@ -107,8 +111,10 @@ app.post('/api/auth/register', async (req, res) => {
         otpExpires
       });
 
-      sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
-        console.error('Async sendOTPEmail error:', err);
+      setImmediate(() => {
+        sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
+          console.error('Async sendOTPEmail error:', err);
+        });
       });
       return res.json({ success: true, message: 'Verification OTP sent to email', email });
     }
@@ -127,8 +133,10 @@ app.post('/api/auth/register', async (req, res) => {
       otpExpires
     });
 
-    sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
-      console.error('Async sendOTPEmail error:', err);
+    setImmediate(() => {
+      sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
+        console.error('Async sendOTPEmail error:', err);
+      });
     });
 
     res.json({ success: true, message: 'Registration initiated. Verification OTP sent to email', email });
@@ -261,8 +269,10 @@ app.post('/api/auth/login-otp', async (req, res) => {
       otpExpires
     });
 
-    sendOTPEmail(email, otp, 'Login Authentication').catch(err => {
-      console.error('Async sendOTPEmail error:', err);
+    setImmediate(() => {
+      sendOTPEmail(email, otp, 'Login Authentication').catch(err => {
+        console.error('Async sendOTPEmail error:', err);
+      });
     });
 
     res.json({ success: true, message: 'Login OTP sent to email', email });
@@ -313,6 +323,49 @@ app.post('/api/auth/verify-login-otp', async (req, res) => {
   }
 });
 
+// Google Login / Registration
+app.post('/api/auth/google-login', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email || !name) {
+    return res.status(400).json({ success: false, message: 'Please provide Google email and name' });
+  }
+
+  try {
+    let user = await dbHelper.findUserByEmail(email);
+
+    if (!user) {
+      // Create user if not exists, verify them immediately since they auth'd with Google
+      const salt = bcrypt.genSaltSync(10);
+      const hashedPassword = bcrypt.hashSync(Math.random().toString(36), salt);
+      user = await dbHelper.createUser({
+        name,
+        email,
+        password: hashedPassword,
+        isVerified: true
+      });
+    } else if (!user.isVerified) {
+      // If user exists but is not verified, verify them since Google email is verified
+      user = await dbHelper.updateUser(email, { isVerified: true });
+    }
+
+    const token = jwt.sign({ id: user._id || user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      success: true,
+      message: 'Google login successful',
+      token,
+      user: {
+        name: user.name,
+        email: user.email
+      }
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(500).json({ success: false, message: 'Server error during Google authentication' });
+  }
+});
+
 // 6. Resend OTP
 app.post('/api/auth/resend-otp', async (req, res) => {
   const { email, purpose } = req.body;
@@ -336,8 +389,10 @@ app.post('/api/auth/resend-otp', async (req, res) => {
     });
 
     const emailPurpose = purpose === 'login' ? 'Login Authentication' : 'Registration Verification';
-    sendOTPEmail(email, otp, emailPurpose).catch(err => {
-      console.error('Async sendOTPEmail error:', err);
+    setImmediate(() => {
+      sendOTPEmail(email, otp, emailPurpose).catch(err => {
+        console.error('Async sendOTPEmail error:', err);
+      });
     });
 
     res.json({ success: true, message: 'A new code has been sent to your email.' });
@@ -355,16 +410,29 @@ app.use('/api/chat', chatRoutes);
 const documentRoutes = require('./routes/documentRoutes');
 app.use('/api/documents', documentRoutes);
 
-// Serve frontend static assets in production
+// Serve frontend static assets in production (if folder exists)
 const path = require('path');
-app.use(express.static(path.join(__dirname, '../frontend/dist')));
+const fs = require('fs');
+const frontendDistPath = path.join(__dirname, '../frontend/dist');
 
-// Fallback all other routes to index.html for client-side routing
-app.get('*splat', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
-});
+if (fs.existsSync(frontendDistPath)) {
+  app.use(express.static(frontendDistPath));
+  // Fallback all other routes to index.html for client-side routing
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(frontendDistPath, 'index.html'));
+  });
+} else {
+  // Default API landing route if frontend is not present (separate deployments)
+  app.get('/', (req, res) => {
+    res.json({ message: 'AskCare API is running successfully.' });
+  });
+}
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`🚀 AskCare Server is running on port ${PORT}`);
-});
+// Start Server (only if not running on Vercel)
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🚀 AskCare Server is running on port ${PORT}`);
+  });
+}
+
+module.exports = app;
