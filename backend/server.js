@@ -82,6 +82,57 @@ const dbHelper = {
 
 // Routes
 
+// 0. Diagnostics Endpoint
+app.get('/api/diagnostics', async (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  
+  const diagnostics = {
+    timestamp: new Date().toISOString(),
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      VERCEL: process.env.VERCEL,
+      PORT: process.env.PORT,
+      HAS_MONGODB_URI: !!process.env.MONGODB_URI,
+      HAS_JWT_SECRET: !!process.env.JWT_SECRET,
+      HAS_SMTP_USER: !!process.env.SMTP_USER,
+      HAS_SMTP_PASS: !!process.env.SMTP_PASS,
+      HAS_SMOLLM_API_KEY: !!process.env.SMOLLM_API_KEY,
+    },
+    database: {
+      mode: useMongo ? 'MongoDB Atlas' : 'Local Fallback (db.json)',
+      connectionState: useMongo ? mongoose.connection.readyState : 'N/A',
+      connectionStateString: useMongo ? ['disconnected', 'connected', 'connecting', 'disconnecting'][mongoose.connection.readyState] : 'N/A',
+    }
+  };
+
+  if (useMongo) {
+    try {
+      if (mongoose.connection.db) {
+        await mongoose.connection.db.admin().ping();
+        diagnostics.database.ping = 'success';
+      } else {
+        diagnostics.database.ping = 'no connection db object yet';
+      }
+    } catch (err) {
+      diagnostics.database.ping = 'failed';
+      diagnostics.database.pingError = err.message;
+    }
+  }
+
+  // Test local filesystem write access (useful for Vercel troubleshooting)
+  try {
+    const tempFilePath = path.join('/tmp', `write-test-${Date.now()}.txt`);
+    fs.writeFileSync(tempFilePath, 'write test');
+    fs.unlinkSync(tempFilePath);
+    diagnostics.fileSystem = { writeTempDir: 'success' };
+  } catch (err) {
+    diagnostics.fileSystem = { writeTempDir: 'failed', error: err.message };
+  }
+
+  res.json(diagnostics);
+});
+
 // 1. Register User
 app.post('/api/auth/register', async (req, res) => {
   const { name, email, password } = req.body;
