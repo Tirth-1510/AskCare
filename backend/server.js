@@ -30,7 +30,7 @@ let cachedConnection = null;
 
 const connectDB = async () => {
   if (!useMongo) return null;
-  
+
   if (mongoose.connection.readyState >= 1) {
     return mongoose.connection;
   }
@@ -56,9 +56,9 @@ const connectDB = async () => {
 // Database Initialization log for local dev
 if (!useMongo) {
   console.log('\n=============================================');
-  console.log('⚠️ DATABASE NOTICE: MONGODB_URI is empty or placeholder.');
-  console.log('💡 STATUS: Operating in Local Fallback DB Mode (db.json)');
-  console.log('💡 TIP: Add MongoDB Atlas connection string in .env to switch to Atlas.');
+  console.log(' DATABASE NOTICE: MONGODB_URI is empty or placeholder.');
+  console.log(' STATUS: Operating in Local Fallback DB Mode (db.json)');
+  console.log(' TIP: Add MongoDB Atlas connection string in .env to switch to Atlas.');
   console.log('=============================================\n');
 }
 
@@ -126,7 +126,7 @@ const dbHelper = {
 app.get('/api/diagnostics', async (req, res) => {
   const fs = require('fs');
   const path = require('path');
-  
+
   const diagnostics = {
     timestamp: new Date().toISOString(),
     env: {
@@ -191,7 +191,7 @@ app.post('/api/auth/register', async (req, res) => {
       if (existingUser.isVerified) {
         return res.status(400).json({ success: false, message: 'Email already registered' });
       }
-      
+
       const salt = bcrypt.genSaltSync(10);
       const hashedPassword = bcrypt.hashSync(password, salt);
 
@@ -233,7 +233,7 @@ app.post('/api/auth/register', async (req, res) => {
     res.json({ success: true, message: 'Registration initiated. Verification OTP sent to email', email });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ success: false, message: 'Server error during registration' });
+    res.status(500).json({ success: false, message: 'Server error during registration', error: error.message });
   }
 });
 
@@ -280,7 +280,7 @@ app.post('/api/auth/verify-register', async (req, res) => {
     });
   } catch (error) {
     console.error('Verify registration error:', error);
-    res.status(500).json({ success: false, message: 'Server error during verification' });
+    res.status(500).json({ success: false, message: 'Server error during verification', error: error.message });
   }
 });
 
@@ -299,11 +299,11 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     if (!user.isVerified) {
-      return res.status(401).json({ 
-        success: false, 
+      return res.status(401).json({
+        success: false,
         message: 'Account not verified. Please verify your email first.',
         needsVerification: true,
-        email: user.email 
+        email: user.email
       });
     }
 
@@ -325,7 +325,7 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ success: false, message: 'Server error during login' });
+    res.status(500).json({ success: false, message: 'Server error during login', error: error.message });
   }
 });
 
@@ -344,11 +344,11 @@ app.post('/api/auth/login-otp', async (req, res) => {
     }
 
     if (!user.isVerified) {
-      return res.status(401).json({ 
-        success: false, 
+      return res.status(401).json({
+        success: false,
         message: 'Account not verified. Please complete verification first.',
         needsVerification: true,
-        email: user.email 
+        email: user.email
       });
     }
 
@@ -369,7 +369,7 @@ app.post('/api/auth/login-otp', async (req, res) => {
     res.json({ success: true, message: 'Login OTP sent to email', email });
   } catch (error) {
     console.error('Login OTP request error:', error);
-    res.status(500).json({ success: false, message: 'Failed to send OTP code' });
+    res.status(500).json({ success: false, message: 'Failed to send OTP code', error: error.message });
   }
 });
 
@@ -410,7 +410,7 @@ app.post('/api/auth/verify-login-otp', async (req, res) => {
     });
   } catch (error) {
     console.error('Verify login OTP error:', error);
-    res.status(500).json({ success: false, message: 'Server error during verification' });
+    res.status(500).json({ success: false, message: 'Server error during verification', error: error.message });
   }
 });
 
@@ -453,7 +453,7 @@ app.post('/api/auth/google-login', async (req, res) => {
     });
   } catch (error) {
     console.error('Google login error:', error);
-    res.status(500).json({ success: false, message: 'Server error during Google authentication' });
+    res.status(500).json({ success: false, message: 'Server error during Google authentication', error: error.message });
   }
 });
 
@@ -489,7 +489,7 @@ app.post('/api/auth/resend-otp', async (req, res) => {
     res.json({ success: true, message: 'A new code has been sent to your email.' });
   } catch (error) {
     console.error('Resend OTP error:', error);
-    res.status(500).json({ success: false, message: 'Failed to resend OTP code' });
+    res.status(500).json({ success: false, message: 'Failed to resend OTP code', error: error.message });
   }
 });
 
