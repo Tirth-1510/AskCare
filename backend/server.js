@@ -505,7 +505,7 @@ const frontendDistPath = path.join(__dirname, '../frontend/dist');
 if (fs.existsSync(frontendDistPath)) {
   app.use(express.static(frontendDistPath));
   // Fallback all other routes to index.html for client-side routing
-  app.get('*', (req, res) => {
+  app.get('/*splat', (req, res) => {
     res.sendFile(path.join(frontendDistPath, 'index.html'));
   });
 } else {
