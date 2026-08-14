@@ -24,11 +24,6 @@ function Home() {
     }
   }, [location.state, logout]);
 
-  // Enforce scroll behavior on mount
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
-
   return (
     <div className="min-h-screen w-full bg-[#0B0E14] text-white font-sans selection:bg-brand-neon/30 selection:text-white">
       {/* Sticky Glassmorphic Navbar */}

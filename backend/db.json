@@ -10,50 +10,6 @@
       "otpExpires": null,
       "createdAt": "2026-07-12T13:52:52.172Z",
       "updatedAt": "2026-07-12T13:54:01.093Z"
-    },
-    {
-      "id": "1783864638590",
-      "name": "Test User",
-      "email": "test2@example.com",
-      "password": "$2b$10$C6t6Z.UTy7lDlF9ytNuUA.IfrcR/4rBweMcJK1G0.ckKB/IogekC6",
-      "isVerified": false,
-      "otp": "116881",
-      "otpExpires": 1783864938588,
-      "createdAt": "2026-07-12T13:57:18.590Z",
-      "updatedAt": "2026-07-12T13:57:18.590Z"
-    },
-    {
-      "id": "1783865005841",
-      "name": "Test User",
-      "email": "test3@example.com",
-      "password": "$2b$10$OW5R6uc9L8IMfQqpzb1leuXmr4nD4oL.pCgoFt1imYfF2MViiZPLe",
-      "isVerified": false,
-      "otp": "239784",
-      "otpExpires": 1783865305839,
-      "createdAt": "2026-07-12T14:03:25.841Z",
-      "updatedAt": "2026-07-12T14:03:25.841Z"
-    },
-    {
-      "id": "1783866170109",
-      "name": "Tirth",
-      "email": "pateltirth1015@gmail.com",
-      "password": "$2b$10$JMz2Uz8x1xwXmtbTH/8WKeHvREaL5rRwyN.hcohFsD2DPUAl6aqky",
-      "isVerified": false,
-      "otp": "127633",
-      "otpExpires": "2026-07-12T16:34:52.021Z",
-      "createdAt": "2026-07-12T14:22:50.109Z",
-      "updatedAt": "2026-07-12T16:29:52.022Z"
-    },
-    {
-      "id": "1783873250562",
-      "name": "Tirth Patel",
-      "email": "tirthmpatel151@gmail.com",
-      "password": "$2b$10$Lvz0UgrivL0SzQe/Id3nCezHLB.Qnk00Ps350pAlJ26VGWy96N5L2",
-      "isVerified": false,
-      "otp": "390943",
-      "otpExpires": "2026-07-12T16:25:50.191Z",
-      "createdAt": "2026-07-12T16:20:50.562Z",
-      "updatedAt": "2026-07-12T16:20:50.563Z"
     }
   ],
   "chats": [

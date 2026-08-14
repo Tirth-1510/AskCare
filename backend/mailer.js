@@ -24,10 +24,10 @@ function getTransporter() {
 
 async function sendOTPEmail(email, otp, purpose = 'Verification') {
   // Check if SMTP is configured AND the password has been changed from the default placeholder
-  const hasSmtp = process.env.SMTP_HOST && 
-                  process.env.SMTP_USER && 
-                  process.env.SMTP_PASS && 
-                  process.env.SMTP_PASS !== 'your_gmail_app_password';
+  const hasSmtp = process.env.SMTP_HOST &&
+    process.env.SMTP_USER &&
+    process.env.SMTP_PASS &&
+    process.env.SMTP_PASS !== 'your_gmail_app_password';
 
   console.log('\n=============================================');
   console.log(`🔑 OTP GENERATED FOR: ${email}`);
@@ -43,13 +43,13 @@ async function sendOTPEmail(email, otp, purpose = 'Verification') {
       const transporter = getTransporter();
 
       const mailOptions = {
-        from: `"AskCare AI Assist" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+        from: `"AskCare" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
         to: email,
         subject: `[AskCare] Your One-Time Passcode (${purpose})`,
         text: `Your passcode is: ${otp}. It will expire in 5 minutes.`,
         html: `
           <div style="font-family: sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; background: #0B0E14; color: #fff;">
-            <h2 style="color: #D4FF00; text-align: center;">AskCare AI Assist</h2>
+            <h2 style="color: #D4FF00; text-align: center;">AskCare</h2>
             <p style="text-align: center; color: #aaa;">You requested a passcode for <strong>${purpose}</strong>.</p>
             <div style="background: #181B22; padding: 15px; text-align: center; border-radius: 8px; margin: 20px 0; border: 1px solid #2C2E38;">
               <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #D4FF00;">${otp}</span>
@@ -60,11 +60,11 @@ async function sendOTPEmail(email, otp, purpose = 'Verification') {
       };
 
       await transporter.sendMail(mailOptions);
-      console.log(`📧 OTP email successfully sent to ${email}`);
+      console.log(`OTP email successfully sent to ${email}`);
       return { success: true, sent: true };
     } catch (error) {
-      console.error('❌ Failed to send SMTP email:', error);
-      console.log('⚠️ Falling back to Console-only OTP logging.');
+      console.error('Failed to send SMTP email:', error);
+      console.log('Falling back to Console-only OTP logging.');
       return { success: true, sent: false, error: error.message };
     }
   }

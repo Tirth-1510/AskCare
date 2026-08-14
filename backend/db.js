@@ -69,6 +69,22 @@ const db = {
     return data.users[index];
   },
 
+  deleteExpiredUnverifiedUsers: (now) => {
+    const data = readData();
+    const initialCount = data.users.length;
+    data.users = data.users.filter(u => {
+      if (u.isVerified) return true;
+      if (!u.otpExpires) return false;
+      const expiry = new Date(u.otpExpires);
+      return expiry.getTime() > now.getTime();
+    });
+    const deletedCount = initialCount - data.users.length;
+    if (deletedCount > 0) {
+      writeData(data);
+    }
+    return deletedCount;
+  },
+
   getChats: () => {
     return readData().chats || [];
   },

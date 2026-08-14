@@ -117,6 +117,19 @@ const dbHelper = {
     } else {
       return db.updateUser(email, updates);
     }
+  },
+
+  cleanupExpiredUsers: async () => {
+    const now = new Date();
+    if (useMongo) {
+      const result = await User.deleteMany({
+        isVerified: false,
+        otpExpires: { $lt: now }
+      });
+      return result.deletedCount;
+    } else {
+      return db.deleteExpiredUnverifiedUsers(now);
+    }
   }
 };
 
@@ -182,6 +195,11 @@ app.post('/api/auth/register', async (req, res) => {
   }
 
   try {
+    // Clean up expired unverified users first
+    await dbHelper.cleanupExpiredUsers().catch(err => {
+      console.error('Error during inline expired users cleanup:', err);
+    });
+
     const existingUser = await dbHelper.findUserByEmail(email);
 
     const otp = generateOTP();
@@ -514,6 +532,18 @@ if (fs.existsSync(frontendDistPath)) {
     res.json({ message: 'AskCare API is running successfully.' });
   });
 }
+
+// Periodic cleanup of expired unverified users (every 5 minutes)
+setInterval(async () => {
+  try {
+    const deletedCount = await dbHelper.cleanupExpiredUsers();
+    if (deletedCount > 0) {
+      console.log(`🧹 Periodic cleanup: Removed ${deletedCount} expired unverified user(s).`);
+    }
+  } catch (err) {
+    console.error('🧹 Periodic cleanup error:', err.message);
+  }
+}, 5 * 60 * 1000);
 
 // Start Server (only if not running on Vercel)
 if (!process.env.VERCEL) {

@@ -44,26 +44,15 @@ function Navbar() {
 
           {/* Desktop Nav Items */}
           <div className="hidden md:flex items-center gap-8">
-            {navLinks.map((link) => {
-              const isHash = link.to.includes('#');
-              return isHash ? (
-                <a
-                  key={link.name}
-                  href={link.to}
-                  className="text-xs font-semibold text-gray-400 hover:text-brand-neon hover:underline underline-offset-4 transition-all duration-200 font-sans uppercase tracking-wider"
-                >
-                  {link.name}
-                </a>
-              ) : (
-                <Link
-                  key={link.name}
-                  to={link.to}
-                  className="text-xs font-semibold text-gray-400 hover:text-brand-neon hover:underline underline-offset-4 transition-all duration-200 font-sans uppercase tracking-wider"
-                >
-                  {link.name}
-                </Link>
-              );
-            })}
+            {navLinks.map((link) => (
+              <Link
+                key={link.name}
+                to={link.to}
+                className="text-xs font-semibold text-gray-400 hover:text-brand-neon hover:underline underline-offset-4 transition-all duration-200 font-sans uppercase tracking-wider"
+              >
+                {link.name}
+              </Link>
+            ))}
           </div>
 
           {/* Action Buttons */}
@@ -134,28 +123,16 @@ function Navbar() {
             className="md:hidden border-t border-gray-800/80 bg-[#0B0E14] overflow-hidden"
           >
             <div className="space-y-1 px-4 py-4">
-              {navLinks.map((link) => {
-                const isHash = link.to.includes('#');
-                return isHash ? (
-                  <a
-                    key={link.name}
-                    href={link.to}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-gray-400 hover:bg-brand-neon/10 hover:text-brand-neon transition-all font-sans uppercase tracking-wider"
-                  >
-                    {link.name}
-                  </a>
-                ) : (
-                  <Link
-                    key={link.name}
-                    to={link.to}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-gray-400 hover:bg-brand-neon/10 hover:text-brand-neon transition-all font-sans uppercase tracking-wider"
-                  >
-                    {link.name}
-                  </Link>
-                );
-              })}
+              {navLinks.map((link) => (
+                <Link
+                  key={link.name}
+                  to={link.to}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-gray-400 hover:bg-brand-neon/10 hover:text-brand-neon transition-all font-sans uppercase tracking-wider"
+                >
+                  {link.name}
+                </Link>
+              ))}
               <div className="border-t border-gray-800/80 my-4 pt-4 flex flex-col gap-2">
                 {isAuthenticated ? (
                   <>

@@ -5,10 +5,6 @@ import { Cpu, ShieldCheck, MessageSquare, Activity, Users, Lightbulb } from 'luc
 import { motion } from 'framer-motion';
 
 function About() {
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
-
   return (
     <div className="min-h-screen w-full bg-[#0B0E14] text-white font-sans selection:bg-brand-neon/30 selection:text-white flex flex-col justify-between">
       <div>

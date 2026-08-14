@@ -5,10 +5,6 @@ import { Mail, Phone, MapPin, Clock, Send, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 function Contact() {
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, []);
-
   const [formData, setFormData] = useState({
     name: '',
     email: '',

@@ -6,3 +6,7 @@
   --color-brand-bg-dark: #0B0E14;
   --color-brand-bg-purple: #201947;
 }
+
+html {
+  scroll-behavior: smooth;
+}
