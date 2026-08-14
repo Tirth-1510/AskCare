@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import robotImg from '../assets/robot.jpg';
+import { signInWithPopup } from 'firebase/auth';
+import { auth, googleProvider } from '../utils/firebase';
 
 // SVG Icons
 const EnvelopeIcon = () => (
@@ -76,26 +78,31 @@ function Login() {
     const [passVisible, setPassVisible] = useState(false);
     const [terms, setTerms] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [showGoogleModal, setShowGoogleModal] = useState(false);
+    const [googleLoading, setGoogleLoading] = useState(false);
     const [countdown, setCountdown] = useState(0);
     const [otpPurpose, setOtpPurpose] = useState('login'); // 'register' | 'login'
     const [notification, setNotification] = useState(null);
 
-    const handleGoogleSelect = async (gName, gEmail) => {
-        setLoading(true);
+    const handleGoogleSignIn = async () => {
+        setGoogleLoading(true);
         try {
+            const result = await signInWithPopup(auth, googleProvider);
+            const user = result.user;
+            const gEmail = user.email;
+            const gName = user.displayName || user.email.split('@')[0];
+
             const res = await googleLogin(gEmail, gName);
             if (res.success) {
                 triggerNotification(res.message || 'Successfully logged in with Google!');
-                setShowGoogleModal(false);
                 navigate('/chat', { replace: true });
             } else {
                 triggerNotification(res.message || 'Google Login failed', 'error');
             }
         } catch (error) {
+            console.error('Firebase Google Auth error:', error);
             triggerNotification(error.message || 'Google authentication failed', 'error');
         } finally {
-            setLoading(false);
+            setGoogleLoading(false);
         }
     };
 
@@ -393,7 +400,7 @@ function Login() {
                         {/* Submit Button */}
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || googleLoading}
                             className="w-full bg-brand-neon text-black font-extrabold py-3.5 rounded-xl hover:bg-[#c6f000] hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:scale-100 transition-all duration-200 text-sm cursor-pointer shadow-lg shadow-brand-neon/10 mt-6 font-sans"
                         >
                             {loading
@@ -418,11 +425,16 @@ function Login() {
                     <div>
                         <button
                             type="button"
-                            onClick={() => setShowGoogleModal(true)}
+                            onClick={handleGoogleSignIn}
+                            disabled={loading || googleLoading}
                             className="w-full bg-brand-neon text-black font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 text-s hover:bg-[#c6f000] hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 cursor-pointer font-sans"
                         >
-                            <GoogleIcon fill="#000000" className="w-3.5 h-5" />
-                            <span>Google</span>
+                            {googleLoading ? (
+                                <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                            ) : (
+                                <GoogleIcon fill="#000000" className="w-3.5 h-5" />
+                            )}
+                            <span>{googleLoading ? 'Connecting...' : 'Google'}</span>
                         </button>
                     </div>
 
@@ -601,7 +613,7 @@ function Login() {
                         {/* Submit Button */}
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || googleLoading}
                             className="w-full bg-brand-neon text-black font-extrabold py-3 rounded-xl hover:bg-[#c6f000] hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:scale-100 transition-all text-xs cursor-pointer shadow-lg shadow-brand-neon/10 mt-5 font-sans"
                         >
                             {loading
@@ -619,13 +631,18 @@ function Login() {
                     <div className="space-y-2 mt-5">
                         <button
                             type="button"
-                            onClick={() => setShowGoogleModal(true)}
+                            onClick={handleGoogleSignIn}
+                            disabled={loading || googleLoading}
                             className="w-full bg-[#111317] hover:bg-[#161920] border border-[#20232C]/60 text-gray-300 font-medium py-2 px-3 rounded-xl flex items-center justify-start gap-4 text-xs transition-all cursor-pointer font-sans"
                         >
                             <div className="w-7 h-7 rounded-full bg-brand-neon flex items-center justify-center text-black shrink-0">
-                                <GoogleIcon fill="#000000" className="w-3 h-3" />
+                                {googleLoading ? (
+                                    <div className="w-3.5 h-3.5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                    <GoogleIcon fill="#000000" className="w-3.5 h-3.5" />
+                                )}
                             </div>
-                            <span>Continue with Google</span>
+                            <span>{googleLoading ? 'Connecting with Google...' : 'Continue with Google'}</span>
                         </button>
 
                         <button
@@ -717,85 +734,7 @@ function Login() {
                 </div>
             </div>
 
-            {/* Google Account Selector Modal */}
-            {showGoogleModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm select-none p-4 animate-fade-in">
-                    <div className="w-full max-w-sm bg-[#16181F] border border-gray-800 rounded-2xl p-6 shadow-2xl relative">
-                        {/* Close Button */}
-                        <button
-                            onClick={() => { if (!loading) setShowGoogleModal(false); }}
-                            className="absolute right-4 top-4 text-gray-500 hover:text-gray-300 cursor-pointer"
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-
-                        {/* Google Identity Header */}
-                        <div className="flex flex-col items-center mb-6">
-                            <GoogleIcon className="w-8 h-8 mb-3" />
-                            <h3 className="text-lg font-bold text-white">Sign in with Google</h3>
-                            <p className="text-[10px] text-gray-400 mt-1">to continue to <span className="text-brand-neon">AskCare AI</span></p>
-                        </div>
-
-                        {loading ? (
-                            <div className="flex flex-col items-center py-6 gap-3">
-                                <div className="w-8 h-8 border-3 border-brand-neon border-t-transparent rounded-full animate-spin"></div>
-                                <p className="text-xs text-gray-400">Connecting with Google...</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-3">
-                                {/* Option 1: SMTP Configured user */}
-                                <button
-                                    onClick={() => handleGoogleSelect('Tirth Patel', 'tirthmpatel151@gmail.com')}
-                                    className="w-full bg-[#20232C] hover:bg-[#282C37] border border-gray-800 rounded-xl p-3.5 flex items-center gap-3 transition-all duration-150 cursor-pointer text-left"
-                                >
-                                    <div className="w-8 h-8 rounded-full bg-brand-neon flex items-center justify-center text-black font-extrabold text-sm uppercase">
-                                        T
-                                    </div>
-                                    <div className="flex flex-col overflow-hidden">
-                                        <span className="text-xs font-semibold text-white truncate">Tirth Patel</span>
-                                        <span className="text-[10px] text-gray-400 truncate">tirthmpatel151@gmail.com</span>
-                                    </div>
-                                </button>
-
-                                {/* Option 2: Choose Custom account */}
-                                <div className="border-t border-gray-800/80 pt-3">
-                                    <p className="text-[10px] text-gray-400 mb-2 font-medium">Or use another account:</p>
-                                    <form onSubmit={(e) => {
-                                        e.preventDefault();
-                                        const customEmail = e.target.elements.customEmail.value;
-                                        const customName = e.target.elements.customName.value || customEmail.split('@')[0];
-                                        if (customEmail) {
-                                            handleGoogleSelect(customName, customEmail);
-                                        }
-                                    }} className="space-y-2">
-                                        <input
-                                            name="customName"
-                                            type="text"
-                                            placeholder="Enter your name"
-                                            className="w-full bg-[#181B22] border border-gray-800 rounded-lg px-3 py-2 text-[11px] text-white focus:outline-none focus:border-brand-neon"
-                                        />
-                                        <input
-                                            name="customEmail"
-                                            type="email"
-                                            required
-                                            placeholder="Enter your google email"
-                                            className="w-full bg-[#181B22] border border-gray-800 rounded-lg px-3 py-2 text-[11px] text-white focus:outline-none focus:border-brand-neon"
-                                        />
-                                        <button
-                                            type="submit"
-                                            className="w-full bg-brand-neon text-black font-extrabold py-2 rounded-lg text-[10px] hover:scale-[1.01] active:scale-[0.99] transition-all cursor-pointer"
-                                        >
-                                            Select Account
-                                        </button>
-                                    </form>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
+            {/* Google Account Selector Modal removed - now using Firebase Auth popup */}
 
             {/* Floating animations definitions in style block */}
             <style>{`
