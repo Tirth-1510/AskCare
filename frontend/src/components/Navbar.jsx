@@ -1,3 +1,30 @@
+/**
+ * Navbar.jsx — Global Navigation Bar
+ *
+ * The sticky top navigation bar shown on all pages of AskCare.
+ * Uses Framer Motion for a smooth slide-in animation on first render.
+ * Adapts its content based on whether the user is authenticated.
+ *
+ * Responsive design:
+ *   - Desktop (md+): Horizontal nav links + action buttons
+ *   - Mobile (<md):  Hamburger menu → animated slide-down drawer
+ *
+ * Auth-aware rendering:
+ *   Authenticated users see: Chat | Profile | Logout
+ *   Unauthenticated users see: Sign In | Sign Up
+ *
+ * Nav links:
+ *   Home      → /
+ *   Features  → /#features  (hash anchor — ScrollToTop handles smooth scroll)
+ *   About     → /about
+ *   Contact   → /contact
+ *
+ * Logout flow:
+ *   Navigates to '/' with { state: { logout: true } } rather than calling
+ *   logout() directly. Home.jsx detects this flag and calls logout() safely
+ *   after the navigation is complete (avoids state update warnings).
+ */
+
 import React, { useState } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -8,20 +35,27 @@ function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAuthenticated, logout } = useAuth();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false); // Controls mobile drawer visibility
 
+  // Navigation links shown in both desktop and mobile menus
   const navLinks = [
     { name: 'Home', to: '/' },
-    { name: 'Features', to: '/#features' },
+    { name: 'Features', to: '/#features' }, // Hash anchor — handled by ScrollToTop
     { name: 'About', to: '/about' },
     { name: 'Contact', to: '/contact' },
   ];
 
+  /**
+   * handleLogout — Navigates to home with a logout flag in router state.
+   * Home.jsx reads this flag and calls AuthContext.logout() to clear credentials.
+   * This indirect approach prevents calling setState during a navigation event.
+   */
   const handleLogout = () => {
     navigate('/', { state: { logout: true }, replace: true });
   };
 
   return (
+    // Framer Motion slide-in animation from above on first render
     <motion.nav 
       initial={{ y: -50, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
@@ -42,7 +76,7 @@ function Navbar() {
             </Link>
           </div>
 
-          {/* Desktop Nav Items */}
+          {/* Desktop Nav Items (hidden on mobile) */}
           <div className="hidden md:flex items-center gap-8">
             {navLinks.map((link) => (
               <Link
@@ -55,9 +89,10 @@ function Navbar() {
             ))}
           </div>
 
-          {/* Action Buttons */}
+          {/* Desktop Action Buttons (hidden on mobile) */}
           <div className="hidden md:flex items-center gap-4">
             {isAuthenticated ? (
+              // ── Authenticated user buttons ──────────────────
               <>
                 <button 
                   onClick={() => navigate('/chat')} 
@@ -82,6 +117,7 @@ function Navbar() {
                 </button>
               </>
             ) : (
+              // ── Unauthenticated user buttons ────────────────
               <>
                 <button 
                   onClick={() => navigate('/login', { state: { from: location } })} 
@@ -100,39 +136,42 @@ function Navbar() {
             )}
           </div>
 
-          {/* Mobile Menu Button */}
+          {/* Mobile Hamburger / Close Button (visible on mobile only) */}
           <div className="flex md:hidden">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="inline-flex items-center justify-center rounded-xl p-2 text-gray-400 hover:bg-[#181B22] hover:text-white focus:outline-none transition-colors duration-200 border border-transparent hover:border-gray-800/80 cursor-pointer"
             >
+              {/* Toggle between hamburger icon and X close icon */}
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Mobile Drawer */}
+      {/* Mobile Drawer — AnimatePresence enables exit animation when closed */}
       <AnimatePresence>
         {mobileMenuOpen && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
+            initial={{ height: 0, opacity: 0 }}   // Start collapsed and invisible
+            animate={{ height: 'auto', opacity: 1 }} // Expand to full height
+            exit={{ height: 0, opacity: 0 }}        // Collapse on close
             transition={{ duration: 0.25 }}
             className="md:hidden border-t border-gray-800/80 bg-[#0B0E14] overflow-hidden"
           >
             <div className="space-y-1 px-4 py-4">
+              {/* Mobile Nav Links */}
               {navLinks.map((link) => (
                 <Link
                   key={link.name}
                   to={link.to}
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={() => setMobileMenuOpen(false)} // Close drawer on navigation
                   className="block rounded-xl px-3 py-2 text-sm font-semibold text-gray-400 hover:bg-brand-neon/10 hover:text-brand-neon transition-all font-sans uppercase tracking-wider"
                 >
                   {link.name}
                 </Link>
               ))}
+              {/* Mobile Action Buttons */}
               <div className="border-t border-gray-800/80 my-4 pt-4 flex flex-col gap-2">
                 {isAuthenticated ? (
                   <>

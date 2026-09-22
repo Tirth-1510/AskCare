@@ -1,36 +1,59 @@
+/**
+ * server.js — AskCare Express API Server
+ *
+ * This is the main entry point for the Node.js/Express backend.
+ * It handles:
+ *   - JWT-based authentication (register, login, OTP, Google OAuth)
+ *   - OTP email delivery via nodemailer (mailer.js)
+ *   - Dual-database support: MongoDB Atlas (production) or local db.json (fallback)
+ *   - Mounting of chat and document feature routes
+ *   - Serving the built React frontend in production (single-server deployment)
+ */
+
 const express = require('express');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
-require('dotenv').config();
+const bcrypt = require('bcryptjs');      // Password hashing library
+const jwt = require('jsonwebtoken');     // JSON Web Token for session management
+const mongoose = require('mongoose');    // MongoDB ODM
+require('dotenv').config();             // Load .env variables into process.env
 
-const db = require('./db'); // local JSON database fallback
-const User = require('./models/User'); // Mongoose Model
-const { generateOTP, sendOTPEmail } = require('./mailer');
+const db = require('./db');                                     // Local JSON file-based fallback database
+const User = require('./models/User');                          // Mongoose User model
+const { generateOTP, sendOTPEmail } = require('./mailer');      // OTP generation and email sending
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key';
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_key';  // Secret key for signing JWTs
 const MONGODB_URI = process.env.MONGODB_URI || '';
 
-// Middleware
+// ────────────────────────────────────────────────────────────────────────
+// CORS & Body Parsing Middleware
+// ────────────────────────────────────────────────────────────────────────
+// Allow all origins (adjust for production to restrict to your frontend domain)
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
 }));
-app.use(express.json());
+app.use(express.json()); // Parse incoming JSON request bodies
 
-// Determine database mode
+// ────────────────────────────────────────────────────────────────────────
+// Database Mode Detection
+// ────────────────────────────────────────────────────────────────────────
+// If MONGODB_URI is missing or still a placeholder, fall back to local db.json
 const isMongoPlaceholder = !MONGODB_URI || MONGODB_URI.includes('cluster0.xxxxx.mongodb.net');
-const useMongo = !isMongoPlaceholder;
+const useMongo = !isMongoPlaceholder; // true = Atlas, false = local JSON file
 
-let cachedConnection = null;
+let cachedConnection = null; // Cached Mongoose connection for serverless re-use
 
+/**
+ * connectDB — Lazily connect to MongoDB Atlas.
+ * Caches the connection to avoid reconnecting on every serverless invocation.
+ */
 const connectDB = async () => {
-  if (!useMongo) return null;
+  if (!useMongo) return null; // Skip if using local fallback
 
+  // Already connected — reuse the existing connection
   if (mongoose.connection.readyState >= 1) {
     return mongoose.connection;
   }
@@ -53,7 +76,7 @@ const connectDB = async () => {
   }
 };
 
-// Database Initialization log for local dev
+// Log which DB mode is active on startup (local development helper)
 if (!useMongo) {
   console.log('\n=============================================');
   console.log(' DATABASE NOTICE: MONGODB_URI is empty or placeholder.');
@@ -62,7 +85,11 @@ if (!useMongo) {
   console.log('=============================================\n');
 }
 
-// Middleware to ensure DB connection is ready before processing API routes
+// ────────────────────────────────────────────────────────────────────────
+// DB Connection Guard Middleware
+// ────────────────────────────────────────────────────────────────────────
+// Ensures MongoDB is connected before any /api/* request is processed.
+// Skips /api/diagnostics to allow health checks even if DB is down.
 app.use(async (req, res, next) => {
   if (useMongo && req.path.startsWith('/api') && req.path !== '/api/diagnostics') {
     try {
@@ -81,8 +108,15 @@ app.use(async (req, res, next) => {
   }
 });
 
-// Unified Database Helpers
+// ────────────────────────────────────────────────────────────────────────
+// Unified Database Helper
+// ────────────────────────────────────────────────────────────────────────
+// Provides a consistent API surface that routes to either MongoDB or local db.json.
+// All auth routes use these helpers — they never call Mongoose or db directly.
 const dbHelper = {
+  /**
+   * Find a user document by email address (case-insensitive).
+   */
   findUserByEmail: async (email) => {
     if (useMongo) {
       return await User.findOne({ email: email.toLowerCase() });
@@ -91,6 +125,9 @@ const dbHelper = {
     }
   },
 
+  /**
+   * Create and persist a new user document.
+   */
   createUser: async (userData) => {
     if (useMongo) {
       const newUser = new User({
@@ -107,24 +144,31 @@ const dbHelper = {
     }
   },
 
+  /**
+   * Apply partial field updates to a user document identified by email.
+   */
   updateUser: async (email, updates) => {
     if (useMongo) {
       return await User.findOneAndUpdate(
         { email: email.toLowerCase() },
         updates,
-        { new: true }
+        { new: true } // Return the updated document
       );
     } else {
       return db.updateUser(email, updates);
     }
   },
 
+  /**
+   * Delete all unverified users whose OTP has expired (periodic cleanup).
+   * Keeps the users collection from accumulating abandoned registrations.
+   */
   cleanupExpiredUsers: async () => {
     const now = new Date();
     if (useMongo) {
       const result = await User.deleteMany({
         isVerified: false,
-        otpExpires: { $lt: now }
+        otpExpires: { $lt: now }  // OTP expiry is in the past
       });
       return result.deletedCount;
     } else {
@@ -133,9 +177,15 @@ const dbHelper = {
   }
 };
 
-// Routes
+// ════════════════════════════════════════════════════════════════════════
+// ROUTES
+// ════════════════════════════════════════════════════════════════════════
 
-// 0. Diagnostics Endpoint
+// ────────────────────────────────────────────────────────────────────────
+// 0. Diagnostics Endpoint — GET /api/diagnostics
+// ────────────────────────────────────────────────────────────────────────
+// Returns a JSON snapshot of the server's environment and database state.
+// Useful for quickly debugging deployment issues on Vercel.
 app.get('/api/diagnostics', async (req, res) => {
   const fs = require('fs');
   const path = require('path');
@@ -159,6 +209,7 @@ app.get('/api/diagnostics', async (req, res) => {
     }
   };
 
+  // Ping MongoDB to confirm liveness (only if connected)
   if (useMongo) {
     try {
       if (mongoose.connection.db) {
@@ -186,7 +237,15 @@ app.get('/api/diagnostics', async (req, res) => {
   res.json(diagnostics);
 });
 
-// 1. Register User
+// ────────────────────────────────────────────────────────────────────────
+// 1. Register User — POST /api/auth/register
+// ────────────────────────────────────────────────────────────────────────
+// Flow:
+//   a. Clean up any expired unverified users to avoid stale records.
+//   b. If email already registered and verified → reject (duplicate).
+//   c. If email registered but unverified → overwrite OTP and resend.
+//   d. Otherwise → hash password, create user, send verification OTP.
+// The user is NOT logged in yet; they must verify via /api/auth/verify-register.
 app.post('/api/auth/register', async (req, res) => {
   const { name, email, password } = req.body;
 
@@ -202,14 +261,17 @@ app.post('/api/auth/register', async (req, res) => {
 
     const existingUser = await dbHelper.findUserByEmail(email);
 
+    // Generate a 6-digit OTP valid for 5 minutes
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
     if (existingUser) {
       if (existingUser.isVerified) {
+        // Email already in use by a verified account → reject
         return res.status(400).json({ success: false, message: 'Email already registered' });
       }
 
+      // User exists but is unverified (e.g. previous registration attempt) → refresh OTP
       const salt = bcrypt.genSaltSync(10);
       const hashedPassword = bcrypt.hashSync(password, salt);
 
@@ -227,11 +289,11 @@ app.post('/api/auth/register', async (req, res) => {
       return res.json({ success: true, message: 'Verification OTP sent to email', email });
     }
 
-    // Hash Password
+    // Hash Password before storing (never store plain text)
     const salt = bcrypt.genSaltSync(10);
     const hashedPassword = bcrypt.hashSync(password, salt);
 
-    // Create user
+    // Create user record in unverified state
     await dbHelper.createUser({
       name,
       email,
@@ -253,7 +315,11 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// 2. Verify Registration OTP
+// ────────────────────────────────────────────────────────────────────────
+// 2. Verify Registration OTP — POST /api/auth/verify-register
+// ────────────────────────────────────────────────────────────────────────
+// Validates the 6-digit OTP the user received via email after registering.
+// On success: marks account as verified, clears OTP, issues a JWT token.
 app.post('/api/auth/verify-register', async (req, res) => {
   const { email, otp } = req.body;
 
@@ -271,18 +337,19 @@ app.post('/api/auth/verify-register', async (req, res) => {
       return res.status(400).json({ success: false, message: 'User is already verified' });
     }
 
-    // Validate OTP
+    // Validate OTP: must match and not be expired
     if (user.otp !== otp || Date.now() > new Date(user.otpExpires).getTime()) {
       return res.status(400).json({ success: false, message: 'Invalid or expired OTP code' });
     }
 
-    // Mark as verified
+    // Mark as verified and clear OTP fields
     await dbHelper.updateUser(email, {
       isVerified: true,
       otp: null,
       otpExpires: null
     });
 
+    // Issue a JWT token valid for 7 days so the user is immediately logged in
     const token = jwt.sign({ id: user._id || user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
@@ -300,7 +367,12 @@ app.post('/api/auth/verify-register', async (req, res) => {
   }
 });
 
-// 3. Password Login
+// ────────────────────────────────────────────────────────────────────────
+// 3. Password Login — POST /api/auth/login
+// ────────────────────────────────────────────────────────────────────────
+// Traditional email + password login.
+// Checks that the account exists, is verified, and bcrypt matches.
+// Returns a 7-day JWT on success.
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -311,6 +383,7 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const user = await dbHelper.findUserByEmail(email);
     if (!user) {
+      // Return generic message to avoid email enumeration attacks
       return res.status(400).json({ success: false, message: 'Invalid email or password' });
     }
 
@@ -323,6 +396,7 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    // Compare the submitted plain-text password against the bcrypt hash
     const passwordMatch = bcrypt.compareSync(password, user.password);
     if (!passwordMatch) {
       return res.status(400).json({ success: false, message: 'Invalid email or password' });
@@ -345,7 +419,11 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// 4. Request Passwordless OTP Login
+// ────────────────────────────────────────────────────────────────────────
+// 4. Request Passwordless OTP Login — POST /api/auth/login-otp
+// ────────────────────────────────────────────────────────────────────────
+// Sends a one-time login code to the user's verified email.
+// No password required — useful for users who prefer magic-link-style auth.
 app.post('/api/auth/login-otp', async (req, res) => {
   const { email } = req.body;
 
@@ -368,6 +446,7 @@ app.post('/api/auth/login-otp', async (req, res) => {
       });
     }
 
+    // Generate a fresh OTP valid for 5 minutes and persist it
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -388,7 +467,11 @@ app.post('/api/auth/login-otp', async (req, res) => {
   }
 });
 
-// 5. Verify Passwordless OTP Login
+// ────────────────────────────────────────────────────────────────────────
+// 5. Verify Passwordless OTP Login — POST /api/auth/verify-login-otp
+// ────────────────────────────────────────────────────────────────────────
+// Validates the magic-link OTP and, on success, issues a JWT session token.
+// The OTP is cleared after use to prevent replay attacks.
 app.post('/api/auth/verify-login-otp', async (req, res) => {
   const { email, otp } = req.body;
 
@@ -402,11 +485,12 @@ app.post('/api/auth/verify-login-otp', async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    // Validate OTP
+    // Validate OTP: both value match and expiry check
     if (user.otp !== otp || Date.now() > new Date(user.otpExpires).getTime()) {
       return res.status(400).json({ success: false, message: 'Invalid or expired OTP code' });
     }
 
+    // Clear OTP after successful verification (single-use)
     await dbHelper.updateUser(email, {
       otp: null,
       otpExpires: null
@@ -429,7 +513,15 @@ app.post('/api/auth/verify-login-otp', async (req, res) => {
   }
 });
 
-// Google Login / Registration
+// ────────────────────────────────────────────────────────────────────────
+// Google Login / Registration — POST /api/auth/google-login
+// ────────────────────────────────────────────────────────────────────────
+// Handles Google OAuth sign-in from the frontend (Firebase Google popup flow).
+// The frontend already authenticated with Google and passes the verified email + name.
+// Logic:
+//   - If user doesn't exist → auto-create with a random password (Google-only account).
+//   - If user exists but unverified → mark as verified (Google email is already trusted).
+//   - Always returns a JWT session token.
 app.post('/api/auth/google-login', async (req, res) => {
   const { email, name } = req.body;
 
@@ -443,12 +535,12 @@ app.post('/api/auth/google-login', async (req, res) => {
     if (!user) {
       // Create user if not exists, verify them immediately since they auth'd with Google
       const salt = bcrypt.genSaltSync(10);
-      const hashedPassword = bcrypt.hashSync(Math.random().toString(36), salt);
+      const hashedPassword = bcrypt.hashSync(Math.random().toString(36), salt); // Random password — not used for login
       user = await dbHelper.createUser({
         name,
         email,
         password: hashedPassword,
-        isVerified: true
+        isVerified: true // Google emails are verified by definition
       });
     } else if (!user.isVerified) {
       // If user exists but is not verified, verify them since Google email is verified
@@ -472,7 +564,12 @@ app.post('/api/auth/google-login', async (req, res) => {
   }
 });
 
-// 6. Resend OTP
+// ────────────────────────────────────────────────────────────────────────
+// 6. Resend OTP — POST /api/auth/resend-otp
+// ────────────────────────────────────────────────────────────────────────
+// Generates and sends a fresh OTP to the user's email.
+// Used by both the registration verification screen and the OTP login screen.
+// The `purpose` field distinguishes which subject line to use in the email.
 app.post('/api/auth/resend-otp', async (req, res) => {
   const { email, purpose } = req.body;
 
@@ -486,6 +583,7 @@ app.post('/api/auth/resend-otp', async (req, res) => {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    // Generate a new 5-minute OTP
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -494,6 +592,7 @@ app.post('/api/auth/resend-otp', async (req, res) => {
       otpExpires
     });
 
+    // Use different email subjects for login vs registration
     const emailPurpose = purpose === 'login' ? 'Login Authentication' : 'Registration Verification';
     const emailResult = await sendOTPEmail(email, otp, emailPurpose);
     if (emailResult.error) {
@@ -507,15 +606,23 @@ app.post('/api/auth/resend-otp', async (req, res) => {
   }
 });
 
-// Chat Routes
+// ────────────────────────────────────────────────────────────────────────
+// Feature Routes (mounted as sub-routers)
+// ────────────────────────────────────────────────────────────────────────
+
+// Chat Routes: POST /, GET /history, GET /:id, DELETE /:id, PATCH /:id
 const chatRoutes = require('./routes/chatRoutes');
 app.use('/api/chat', chatRoutes);
 
-// Document Routes (RAG)
+// Document Routes (RAG upload / retrieval): POST /upload, GET /, DELETE /:id
 const documentRoutes = require('./routes/documentRoutes');
 app.use('/api/documents', documentRoutes);
 
-// Serve frontend static assets in production (if folder exists)
+// ────────────────────────────────────────────────────────────────────────
+// Static Frontend Serving (Production / Single-Server Deployment)
+// ────────────────────────────────────────────────────────────────────────
+// When deployed as a single process, the built React app is served from /frontend/dist.
+// The catch-all route delegates all non-API paths to index.html for client-side routing.
 const path = require('path');
 const fs = require('fs');
 const frontendDistPath = path.join(__dirname, '../frontend/dist');
@@ -533,7 +640,11 @@ if (fs.existsSync(frontendDistPath)) {
   });
 }
 
-// Periodic cleanup of expired unverified users (every 5 minutes)
+// ────────────────────────────────────────────────────────────────────────
+// Periodic Cleanup Job — every 5 minutes
+// ────────────────────────────────────────────────────────────────────────
+// Removes unverified user accounts whose OTP registration window has expired.
+// Prevents the users collection from filling with zombie registrations.
 setInterval(async () => {
   try {
     const deletedCount = await dbHelper.cleanupExpiredUsers();
@@ -543,13 +654,18 @@ setInterval(async () => {
   } catch (err) {
     console.error('🧹 Periodic cleanup error:', err.message);
   }
-}, 5 * 60 * 1000);
+}, 5 * 60 * 1000); // Run every 5 minutes
 
-// Start Server (only if not running on Vercel)
+// ────────────────────────────────────────────────────────────────────────
+// Start Server (only in non-Vercel / local environments)
+// ────────────────────────────────────────────────────────────────────────
+// On Vercel, the platform handles the HTTP lifecycle; calling app.listen()
+// is unnecessary and would cause issues — so we skip it.
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`🚀 AskCare Server is running on port ${PORT}`);
   });
 }
 
+// Export the Express app for use as a Vercel serverless function handler
 module.exports = app;

@@ -1,41 +1,85 @@
+/**
+ * documentController.js — PDF Upload, Chunking, Embedding & RAG Retrieval
+ *
+ * This controller handles the full Retrieval-Augmented Generation (RAG) pipeline:
+ *
+ *   UPLOAD FLOW (POST /api/documents/upload):
+ *     1. Receive a PDF file buffer via Multer in-memory storage
+ *     2. Parse the PDF text using pdf-parse (with a raw binary fallback)
+ *     3. Split the text into overlapping chunks (800 chars, 150 char overlap)
+ *     4. Generate a 384-dim semantic embedding for each chunk using Xenova
+ *     5. Save Document metadata and all DocumentChunk records to DB
+ *
+ *   RETRIEVAL FLOW (retrieveRelevantContext — called internally by chatController):
+ *     1. Embed the user's query into a 384-dim vector
+ *     2. Fetch all chunks belonging to the user
+ *     3. Compute cosine similarity (dot product) between query and each chunk
+ *     4. Return the top-3 highest-scoring chunks as a single string
+ *        to inject into the LLM prompt as clinical context
+ */
+
 const mongoose = require('mongoose');
-const pdfParse = require('pdf-parse');
+const pdfParse = require('pdf-parse');           // Primary PDF text extractor
 const Document = require('../models/Document');
 const DocumentChunk = require('../models/DocumentChunk');
 const db = require('../db');
 const embeddingService = require('../services/embedding.service');
 require('dotenv').config();
 
+// ────────────────────────────────────────────────────────────────────────
+// Database Mode Detection (same pattern as server.js and chatController.js)
+// ────────────────────────────────────────────────────────────────────────
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const isMongoPlaceholder = !MONGODB_URI || MONGODB_URI.includes('cluster0.xxxxx.mongodb.net');
 const useMongo = !isMongoPlaceholder;
 
-// Helper to split text into overlapping chunks
+/**
+ * chunkText — Splits a long text string into overlapping fixed-size segments.
+ *
+ * Overlapping windows (overlap = 150 chars) ensure that sentences crossing
+ * chunk boundaries are still captured by at least one chunk, improving
+ * retrieval accuracy for partial matches.
+ *
+ * @param {string} text    — Full extracted PDF text
+ * @param {number} size    — Chunk size in characters (default: 800)
+ * @param {number} overlap — Number of characters to repeat at chunk boundaries (default: 150)
+ * @returns {Array<{text: string, pageNumber: number}>} Array of chunk objects
+ */
 const chunkText = (text, size = 800, overlap = 150) => {
   const chunks = [];
   let start = 0;
   
-  // Clean up white space first
+  // Normalize whitespace first (collapse multiple spaces/newlines to single space)
   const cleanedText = text.replace(/\s+/g, ' ').trim();
   
   while (start < cleanedText.length) {
     let end = start + size;
     if (end > cleanedText.length) {
-      end = cleanedText.length;
+      end = cleanedText.length; // Don't overshoot at the end of text
     }
     
     chunks.push({
       text: cleanedText.substring(start, end),
-      pageNumber: 1 // pdf-parse default
+      pageNumber: 1 // pdf-parse default — page info not preserved in current implementation
     });
     
-    if (end === cleanedText.length) break;
-    start += (size - overlap);
+    if (end === cleanedText.length) break; // Reached end of text
+    start += (size - overlap); // Advance by (size - overlap) to create the overlapping window
   }
   return chunks;
 };
 
-// Calculate dot product (cosine similarity since embedding service outputs normalized unit vectors)
+/**
+ * dotProduct — Calculates the dot product of two equal-length float arrays.
+ *
+ * Since Xenova/all-MiniLM-L6-v2 outputs L2-normalized vectors (unit vectors),
+ * the dot product IS the cosine similarity score.
+ * Score range: [-1, 1] where 1 = identical meaning, 0 = unrelated, -1 = opposite.
+ *
+ * @param {number[]} a — First embedding vector
+ * @param {number[]} b — Second embedding vector
+ * @returns {number} Similarity score
+ */
 const dotProduct = (a, b) => {
   if (!a || !b || a.length !== b.length) return 0;
   let sum = 0;
@@ -45,7 +89,19 @@ const dotProduct = (a, b) => {
   return sum;
 };
 
-// 1. Upload and Process PDF (POST /api/documents/upload)
+// ════════════════════════════════════════════════════════════════════════
+// 1. Upload and Process PDF — POST /api/documents/upload
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * uploadDocument — Full PDF ingestion pipeline.
+ *
+ * Steps:
+ *   1. Validate file type (PDF only)
+ *   2. Extract text (pdf-parse primary, raw binary fallback)
+ *   3. Chunk text into overlapping segments
+ *   4. Generate embeddings for all chunks (sequential, not parallel — avoids OOM)
+ *   5. Save Document metadata and all DocumentChunk records
+ */
 exports.uploadDocument = async (req, res) => {
   const userId = req.user.id;
 
@@ -60,15 +116,17 @@ exports.uploadDocument = async (req, res) => {
   try {
     console.log(`Parsing PDF file: ${req.file.originalname} (${req.file.size} bytes)...`);
     
-    // Parse PDF text
+    // ── Step 1: Extract PDF Text ────────────────────────────────────────
     let pdfText = '';
     try {
+      // Primary method: pdf-parse library (handles most standard PDFs)
       const parsedPdf = await pdfParse(req.file.buffer);
       pdfText = parsedPdf.text || '';
     } catch (parseError) {
       console.warn('⚠️ PDF parsing library failed. Trying direct text stream extraction fallback:', parseError.message);
       
-      // Fallback: extract ASCII text from stream objects
+      // Fallback method 1: Extract text from PDF parenthesis stream blocks
+      // PDF text streams use the format: (text) Tj  or  (text)'
       const rawString = req.file.buffer.toString('binary');
       
       // Look for PDF text parenthesis blocks e.g. (text) Tj or (text)'
@@ -79,7 +137,7 @@ exports.uploadDocument = async (req, res) => {
           return contentMatch ? contentMatch[1] : '';
         }).join(' ');
       } else {
-        // Alternative fallback: strip out binary characters and extract printable sequences
+        // Fallback method 2: strip out binary characters and extract printable ASCII sequences
         const cleanText = rawString.replace(/[^\x20-\x7E\s]/g, ' ');
         pdfText = cleanText.replace(/\s+/g, ' ').trim();
       }
@@ -92,22 +150,24 @@ exports.uploadDocument = async (req, res) => {
       });
     }
 
-    // Split text into chunks
+    // ── Step 2: Split Text Into Overlapping Chunks ──────────────────────
     const chunks = chunkText(pdfText);
     const chunkCount = chunks.length;
     console.log(`Split text into ${chunkCount} chunks. Generating embeddings...`);
 
-    // Generate embeddings for all chunks
+    // ── Step 3: Generate Vector Embeddings for Each Chunk ───────────────
+    // Sequential (not Promise.all) to avoid memory spikes with large PDFs
     const embeddings = [];
     for (let i = 0; i < chunks.length; i++) {
       const vector = await embeddingService.generateEmbedding(chunks[i].text);
       embeddings.push(vector);
     }
 
+    // ── Step 4: Persist Document Metadata + Vector Chunks ───────────────
     let documentObj = null;
 
     if (useMongo) {
-      // Save Document Metadata
+      // Save Document Metadata first (we need its _id for the chunks)
       const newDoc = new Document({
         userId,
         filename: req.file.originalname,
@@ -116,18 +176,18 @@ exports.uploadDocument = async (req, res) => {
       });
       documentObj = await newDoc.save();
 
-      // Save Chunks
+      // Save Chunks in bulk — DocumentChunk.insertMany is more efficient than individual saves
       const chunkDocs = chunks.map((c, i) => new DocumentChunk({
         documentId: documentObj._id,
         userId,
         text: c.text,
-        embedding: embeddings[i],
+        embedding: embeddings[i],  // The 384-dim vector for this chunk
         pageNumber: c.pageNumber
       }));
       
       await DocumentChunk.insertMany(chunkDocs);
     } else {
-      // Fallback Local Storage
+      // Fallback Local Storage — sequential inserts for the local db
       documentObj = db.createDocument({
         userId,
         filename: req.file.originalname,
@@ -162,7 +222,13 @@ exports.uploadDocument = async (req, res) => {
   }
 };
 
-// 2. Get User Documents (GET /api/documents)
+// ════════════════════════════════════════════════════════════════════════
+// 2. Get User Documents — GET /api/documents
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * getDocuments — Returns metadata for all documents uploaded by the logged-in user.
+ * Sorted by upload date (newest first).
+ */
 exports.getDocuments = async (req, res) => {
   const userId = req.user.id;
 
@@ -181,7 +247,14 @@ exports.getDocuments = async (req, res) => {
   }
 };
 
-// 3. Delete Document (DELETE /api/documents/:id)
+// ════════════════════════════════════════════════════════════════════════
+// 3. Delete Document — DELETE /api/documents/:id
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * deleteDocument — Deletes a document and ALL its associated vector chunks.
+ * Ownership is verified before deletion (users can only delete their own docs).
+ * This is a cascade delete: both the Document and its DocumentChunks are removed.
+ */
 exports.deleteDocument = async (req, res) => {
   const docId = req.params.id;
   const userId = req.user.id;
@@ -192,13 +265,13 @@ exports.deleteDocument = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Invalid Document ID format.' });
       }
 
-      // Verify ownership before deleting
+      // Verify ownership before deleting (findOneAndDelete with userId predicate)
       const deletedDoc = await Document.findOneAndDelete({ _id: docId, userId });
       if (!deletedDoc) {
         return res.status(404).json({ success: false, message: 'Document not found or access denied.' });
       }
 
-      // Remove chunks
+      // Remove chunks — all vector data associated with this document
       await DocumentChunk.deleteMany({ documentId: docId, userId });
       
       return res.json({ success: true, message: 'Document and vectorized index deleted.' });
@@ -208,6 +281,7 @@ exports.deleteDocument = async (req, res) => {
         return res.status(404).json({ success: false, message: 'Document not found or access denied.' });
       }
 
+      // db.deleteDocument also removes associated chunks (see db.js)
       const success = db.deleteDocument(docId);
       if (!success) {
         return res.status(500).json({ success: false, message: 'Failed to delete document from fallback.' });
@@ -220,11 +294,34 @@ exports.deleteDocument = async (req, res) => {
   }
 };
 
-// 4. Retrieve Context (Internal Helper to fetch relevant vector chunks)
+// ════════════════════════════════════════════════════════════════════════
+// 4. Retrieve Relevant Context — Internal Helper (called by chatController)
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * retrieveRelevantContext — Performs semantic similarity search over the user's
+ * uploaded document chunks to find the most relevant clinical passages.
+ *
+ * This is the "R" (Retrieval) step of RAG:
+ *   1. Embed the user's query into a 384-dim vector
+ *   2. Load all chunks owned by the user
+ *   3. Score each chunk via dot product (cosine similarity)
+ *   4. Filter out low-relevance chunks (score ≤ 0.15)
+ *   5. Return the top `limit` chunk texts concatenated as a single string
+ *
+ * The returned string is injected into the LLM system prompt as context.
+ * Returns an empty string if no relevant chunks exist (chat still works without docs).
+ *
+ * @param {string} userId  — The authenticated user's id
+ * @param {string} query   — The user's natural language question
+ * @param {number} limit   — Max number of chunks to include (default: 3)
+ * @returns {Promise<string>} Concatenated relevant chunk text (or '' if none)
+ */
 exports.retrieveRelevantContext = async (userId, query, limit = 3) => {
   try {
+    // Embed the query using the same model used during document ingestion
     const queryVector = await embeddingService.generateEmbedding(query);
     
+    // Fetch all vector chunks owned by the user
     let allChunks = [];
     if (useMongo) {
       allChunks = await DocumentChunk.find({ userId });
@@ -233,10 +330,10 @@ exports.retrieveRelevantContext = async (userId, query, limit = 3) => {
     }
 
     if (allChunks.length === 0) {
-      return '';
+      return ''; // User has no uploaded documents — no context to inject
     }
 
-    // Calculate score for each chunk
+    // Calculate dot product score for each chunk (cosine similarity since vectors are normalized)
     const chunksWithScores = allChunks.map(chunk => {
       const score = dotProduct(queryVector, chunk.embedding);
       return {
@@ -245,20 +342,21 @@ exports.retrieveRelevantContext = async (userId, query, limit = 3) => {
       };
     });
 
-    // Sort descending by score and filter out very low matches
+    // Sort descending by score and filter out very low matches (< 0.15 threshold)
+    // The 0.15 threshold removes clearly unrelated chunks that would just add noise
     const scoredAndFiltered = chunksWithScores
       .filter(c => c.score > 0.15)
       .sort((a, b) => b.score - a.score);
 
-    const topChunks = scoredAndFiltered.slice(0, limit);
+    const topChunks = scoredAndFiltered.slice(0, limit); // Take top N
 
     if (topChunks.length === 0) {
-      return '';
+      return ''; // No chunks passed the relevance threshold
     }
 
     console.log(`RAG retrieved ${topChunks.length} matching chunks for query. Top score: ${topChunks[0].score.toFixed(3)}`);
     
-    // Combine chunks
+    // Join chunks with double newline for readability in the prompt
     return topChunks.map(c => c.text).join('\n\n');
   } catch (error) {
     console.error('Error retrieving context:', error);

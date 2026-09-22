@@ -1,3 +1,21 @@
+/**
+ * chatController.js — Chat Session Business Logic
+ *
+ * Handles all chat-related operations for the AskCare medical AI assistant.
+ *
+ * Key responsibilities:
+ *   1. createOrUpdateChat — Accept a user message, retrieve RAG context from uploaded
+ *      documents, call the AI service, and persist the full exchange.
+ *   2. getChatHistory     — Return a summarized list of the user's past sessions.
+ *   3. getChatById        — Return the full message history of one session.
+ *   4. deleteChat         — Permanently remove a session and its messages.
+ *   5. updateChatTitle    — Rename a session's title.
+ *
+ * Dual-database support:
+ *   Uses the same useMongo flag as server.js to route all queries to either
+ *   MongoDB Atlas (Mongoose) or the local db.json file (db.js helpers).
+ */
+
 const mongoose = require('mongoose');
 const Chat = require('../models/Chat');
 const db = require('../db');
@@ -5,12 +23,19 @@ const aiService = require('../services/ai.service');
 const documentController = require('./documentController');
 require('dotenv').config();
 
-// Determine database mode
+// ────────────────────────────────────────────────────────────────────────
+// Database Mode Detection
+// ────────────────────────────────────────────────────────────────────────
 const MONGODB_URI = process.env.MONGODB_URI || '';
 const isMongoPlaceholder = !MONGODB_URI || MONGODB_URI.includes('cluster0.xxxxx.mongodb.net');
-const useMongo = !isMongoPlaceholder;
+const useMongo = !isMongoPlaceholder;  // true = Atlas, false = local JSON file
 
-// Helper to generate chat title from first message
+/**
+ * generateTitle — Produces a short display title from the user's first message.
+ * Truncates to 27 characters and appends "..." if needed.
+ * @param {string} message — The first user message
+ * @returns {string} A ≤30 character title string
+ */
 const generateTitle = (message) => {
   const cleanMessage = message.trim();
   if (cleanMessage.length <= 30) {
@@ -19,10 +44,25 @@ const generateTitle = (message) => {
   return cleanMessage.substring(0, 27) + '...';
 };
 
-// 1. Create or Continue Chat (POST /api/chat)
+// ════════════════════════════════════════════════════════════════════════
+// 1. Create or Continue Chat — POST /api/chat
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * createOrUpdateChat — Core message handler.
+ *
+ * Full pipeline:
+ *   a. If chatId is provided, load the existing session and its history.
+ *   b. Limit history to the last 10 messages for LLM context window efficiency.
+ *   c. Retrieve relevant clinical context from the user's uploaded PDFs via RAG.
+ *   d. Send the conversation + context to the AI service (SmolLM3 or mock).
+ *   e. Append both the user message and the AI reply to the session.
+ *   f. Persist the updated session and return it.
+ *
+ * If no chatId is provided → a new session is created with an auto-generated title.
+ */
 exports.createOrUpdateChat = async (req, res) => {
   const { message, chatId } = req.body;
-  const userId = req.user.id;
+  const userId = req.user.id; // Injected by authMiddleware after JWT verification
 
   if (!message || message.trim() === '') {
     return res.status(400).json({ success: false, message: 'Message content is required.' });
@@ -35,15 +75,17 @@ exports.createOrUpdateChat = async (req, res) => {
     let chatHistory = [];
     let chatObj = null;
 
-    // Load conversation context if continuing
+    // ── A. Load Existing Chat (if continuing a session) ──────────────────
     if (chatId) {
       if (useMongo) {
         if (!mongoose.Types.ObjectId.isValid(chatId)) {
           return res.status(400).json({ success: false, message: 'Invalid Chat ID format.' });
         }
+        // findOne with both _id and userId ensures users can only access their own chats
         chatObj = await Chat.findOne({ _id: chatId, userId });
       } else {
         chatObj = db.getChatById(chatId);
+        // Ownership check for local db (Mongoose enforces this via the query predicate above)
         if (chatObj && chatObj.userId.toString() !== userId.toString()) {
           chatObj = null;
         }
@@ -57,22 +99,27 @@ exports.createOrUpdateChat = async (req, res) => {
       chatHistory = chatObj.messages.slice(-10);
     }
 
-    // Append current prompt for the LLM
+    // Append current prompt for the LLM (must come after history truncation)
     chatHistory.push(userMessage);
 
-    // Retrieve relevant clinical document context (RAG)
+    // ── B. RAG Context Retrieval ──────────────────────────────────────────
+    // Embed the query and find the most semantically similar document chunks
+    // from the user's uploaded PDFs. Returns a string to inject into the prompt.
     const context = await documentController.retrieveRelevantContext(userId, userPrompt);
 
-    // Call Gemma 3 AI service with retrieved context
+    // ── C. AI Response Generation ─────────────────────────────────────────
+    // Call SmolLM3-3B (via Together.xyz API) or fall back to local mock answers
     const aiResponse = await aiService.generateResponse(chatHistory, context);
     const aiMessage = { sender: 'ai', content: aiResponse, timestamp: new Date() };
 
-    // A. Continue Existing Chat
+    // ── D. Persist Messages ───────────────────────────────────────────────
+
+    // D1. Continue Existing Chat — append both messages and save
     if (chatId) {
       if (useMongo) {
         chatObj.messages.push(userMessage);
         chatObj.messages.push(aiMessage);
-        await chatObj.save();
+        await chatObj.save(); // Mongoose auto-updates updatedAt
         return res.json({ success: true, chat: chatObj });
       } else {
         chatObj.messages.push(userMessage);
@@ -82,7 +129,7 @@ exports.createOrUpdateChat = async (req, res) => {
       }
     }
 
-    // B. Create New Chat
+    // D2. Create New Chat — title comes from the first user message
     const title = generateTitle(userPrompt);
     const messages = [userMessage, aiMessage];
 
@@ -108,15 +155,22 @@ exports.createOrUpdateChat = async (req, res) => {
   }
 };
 
-// 2. Get Chat History (GET /api/chat/history)
+// ════════════════════════════════════════════════════════════════════════
+// 2. Get Chat History — GET /api/chat/history
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * getChatHistory — Returns a lightweight list of the user's past sessions.
+ * Includes: id, title, timestamps, message count, and the last message snippet.
+ * Sorted by most recently updated (newest first).
+ */
 exports.getChatHistory = async (req, res) => {
   const userId = req.user.id;
 
   try {
     if (useMongo) {
       const chats = await Chat.find({ userId })
-        .sort({ updatedAt: -1 })
-        .select('_id title createdAt updatedAt messages');
+        .sort({ updatedAt: -1 })                               // Newest first
+        .select('_id title createdAt updatedAt messages');     // Only fetch fields we need
 
       // Transform response to include message count and last message snippet
       const history = chats.map(c => ({
@@ -132,7 +186,7 @@ exports.getChatHistory = async (req, res) => {
     } else {
       const chats = db.getChatsByUser(userId);
       
-      // Sort by updatedAt descending
+      // Sort by updatedAt descending (manual sort for local db)
       chats.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 
       const history = chats.map(c => ({
@@ -152,7 +206,13 @@ exports.getChatHistory = async (req, res) => {
   }
 };
 
-// 3. Get Single Chat (GET /api/chat/:id)
+// ════════════════════════════════════════════════════════════════════════
+// 3. Get Single Chat — GET /api/chat/:id
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * getChatById — Returns the full message history of a specific session.
+ * Enforces ownership: a user can only access their own sessions.
+ */
 exports.getChatById = async (req, res) => {
   const chatId = req.params.id;
   const userId = req.user.id;
@@ -163,6 +223,7 @@ exports.getChatById = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Invalid Chat ID format.' });
       }
 
+      // findOne with userId ensures ownership enforcement at the DB level
       const chat = await Chat.findOne({ _id: chatId, userId });
       if (!chat) {
         return res.status(404).json({ success: false, message: 'Chat session not found.' });
@@ -171,6 +232,7 @@ exports.getChatById = async (req, res) => {
       return res.json({ success: true, chat });
     } else {
       const chat = db.getChatById(chatId);
+      // Manual ownership check for the local db fallback
       if (!chat || chat.userId.toString() !== userId.toString()) {
         return res.status(404).json({ success: false, message: 'Chat session not found.' });
       }
@@ -183,7 +245,13 @@ exports.getChatById = async (req, res) => {
   }
 };
 
-// 4. Delete Chat (DELETE /api/chat/:id)
+// ════════════════════════════════════════════════════════════════════════
+// 4. Delete Chat — DELETE /api/chat/:id
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * deleteChat — Permanently removes a chat session.
+ * Ownership is verified before deletion to prevent cross-user data tampering.
+ */
 exports.deleteChat = async (req, res) => {
   const chatId = req.params.id;
   const userId = req.user.id;
@@ -194,6 +262,7 @@ exports.deleteChat = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Invalid Chat ID format.' });
       }
 
+      // findOneAndDelete with userId predicate — atomic ownership check + delete
       const deletedChat = await Chat.findOneAndDelete({ _id: chatId, userId });
       if (!deletedChat) {
         return res.status(404).json({ success: false, message: 'Chat session not found or access denied.' });
@@ -219,7 +288,13 @@ exports.deleteChat = async (req, res) => {
   }
 };
 
-// 5. Update Chat Title (PATCH /api/chat/:id)
+// ════════════════════════════════════════════════════════════════════════
+// 5. Update Chat Title — PATCH /api/chat/:id
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * updateChatTitle — Renames a chat session's display title.
+ * Only the owner can rename their own sessions.
+ */
 exports.updateChatTitle = async (req, res) => {
   const chatId = req.params.id;
   const userId = req.user.id;
@@ -235,10 +310,11 @@ exports.updateChatTitle = async (req, res) => {
         return res.status(400).json({ success: false, message: 'Invalid Chat ID format.' });
       }
 
+      // findOneAndUpdate with { new: true } returns the updated document immediately
       const chat = await Chat.findOneAndUpdate(
-        { _id: chatId, userId },
+        { _id: chatId, userId },          // Predicate enforces ownership
         { title: title.trim() },
-        { new: true }
+        { new: true }                     // Return the updated document
       );
       
       if (!chat) {
@@ -260,4 +336,3 @@ exports.updateChatTitle = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error while updating chat title.' });
   }
 };
-
