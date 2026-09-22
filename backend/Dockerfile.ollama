@@ -1,0 +1,28 @@
+# ==============================================================================
+# Dockerfile — AskCare Ollama Inference Server
+# ==============================================================================
+# Deploys the custom fine-tuned 'askcare-medical' model on Ollama,
+# exposing an OpenAI-compatible /v1/chat/completions endpoint.
+#
+# Build:   docker build -t askcare-ollama .
+# Run:     docker run -p 11434:11434 askcare-ollama
+# ==============================================================================
+
+FROM ollama/ollama:latest
+
+# Copy the Modelfile that defines the custom model (base + system prompt + params)
+COPY Modelfile /root/Modelfile
+
+# Copy the training dataset (used during model creation)
+COPY medical_dataset.jsonl /root/medical_dataset.jsonl
+
+# Copy the startup script that creates the model on first boot
+COPY start.sh /root/start.sh
+RUN chmod +x /root/start.sh
+
+# Expose the Ollama API port
+EXPOSE 11434
+
+# Use the startup script as the entrypoint
+# It starts Ollama, creates the model from the Modelfile, then keeps serving
+ENTRYPOINT ["/root/start.sh"]

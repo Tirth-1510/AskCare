@@ -4,23 +4,32 @@
  * This service is the central AI integration layer for AskCare.
  * It is responsible for generating clinical AI responses to user queries.
  *
- * TWO operating modes:
+ * THREE operating modes (evaluated in priority order):
  *
- *   1. LIVE MODE (SmolLM3-3B via Together.xyz or local Ollama):
- *      - Activated when SMOLLM_API_KEY is configured in .env
+ *   1. CUSTOM MODEL MODE (Render-hosted Ollama or any remote OpenAI-compatible API):
+ *      - Activated when USE_CUSTOM_MODEL=true in .env
+ *      - Calls CUSTOM_MODEL_URL (e.g. Render-hosted Ollama endpoint)
+ *      - Uses the CUSTOM_MODEL_NAME identifier (defaults to 'askcare-medical')
+ *      - Enables 24/7 availability even when the developer's laptop is off
+ *
+ *   2. SMOLLM / EXTERNAL API MODE (Together.xyz, local Ollama, etc.):
+ *      - Activated when USE_CUSTOM_MODEL is false/absent AND SMOLLM_API_KEY is set
  *      - Sends the conversation history + RAG context to the LLM API
  *      - Uses a strict medical system prompt to constrain the model
  *      - Temperature: 0.2 (low, for reliable factual medical responses)
  *
- *   2. MOCK/FALLBACK MODE (local pattern matching):
- *      - Activated when SMOLLM_API_KEY is missing or the API call fails
+ *   3. MOCK/FALLBACK MODE (local pattern matching):
+ *      - Activated when no API is configured or when any API call fails
  *      - Uses keyword-based pattern matching to return canned clinical guidance
  *      - Ensures the app is always functional even without an API key
  *
  * Environment variables:
- *   SMOLLM_API_KEY      — API key for the Together.xyz inference endpoint
- *   SMOLLM_API_URL      — Inference API base URL (defaults to Together.xyz)
- *   SMOLLM_MODEL_NAME   — Model identifier on the API (defaults to 'SmolLM3-3B')
+ *   USE_CUSTOM_MODEL    — Set to 'true' to use the Render-hosted custom model
+ *   CUSTOM_MODEL_URL    — Full URL to the custom model's /v1/chat/completions endpoint
+ *   CUSTOM_MODEL_NAME   — Model name on the custom server (defaults to 'askcare-medical')
+ *   SMOLLM_API_KEY      — API key for the Together.xyz inference endpoint (Mode 2)
+ *   SMOLLM_API_URL      — Inference API base URL (defaults to Together.xyz) (Mode 2)
+ *   SMOLLM_MODEL_NAME   — Model identifier on the API (defaults to 'SmolLM3-3B') (Mode 2)
  */
 
 /**
@@ -38,6 +47,83 @@ const MEDICAL_SYSTEM_PROMPT = `You are a clinical query resolution assistant for
 4. Do NOT generate speculative, unproven, or unsupported medical claims. If you do not have enough evidence to support a claim, say so clearly.
 5. ALWAYS conclude your response with the following exact medical disclaimer on a new line:
 "Disclaimer: This information is for educational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult a healthcare professional for clinical concerns."`;
+
+/**
+ * fetchCustomModelCompletion — Calls the Render-hosted (or any remote) custom model.
+ *
+ * This is the primary inference path when USE_CUSTOM_MODEL=true.
+ * The remote server must expose an OpenAI-compatible /v1/chat/completions endpoint,
+ * which Ollama does natively.
+ *
+ * Uses a 30-second timeout to accommodate Render free-tier cold starts.
+ *
+ * @param {Array<{role: string, content: string}>} messages — Formatted LLM messages
+ * @returns {Promise<string>} The AI-generated response text
+ * @throws {Error} On API failure, timeout, or unexpected response format
+ */
+const fetchCustomModelCompletion = async (messages) => {
+  const customUrl = process.env.CUSTOM_MODEL_URL;
+  const modelName = process.env.CUSTOM_MODEL_NAME || 'askcare-medical';
+
+  if (!customUrl || customUrl.trim() === '') {
+    throw new Error('CUSTOM_MODEL_URL is not configured. Please set it in your environment variables.');
+  }
+
+  // Prepend the strict medical prompt instructions as the first system message
+  const formattedMessages = [
+    { role: 'system', content: MEDICAL_SYSTEM_PROMPT },
+    ...messages
+  ];
+
+  // 30-second timeout (Render free tier can have ~10s cold starts)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  const headers = {
+    'Content-Type': 'application/json'
+  };
+
+  // Attach Authorization header only if CUSTOM_MODEL_API_KEY is provided
+  const apiKey = process.env.CUSTOM_MODEL_API_KEY;
+  if (apiKey && apiKey.trim() !== '' && !apiKey.includes('YOUR_')) {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  try {
+    const response = await fetch(customUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: modelName,
+        messages: formattedMessages,
+        temperature: 0.2,
+        max_tokens: 512
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Custom Model API status ${response.status}: ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    if (data.choices && data.choices[0] && data.choices[0].message) {
+      return data.choices[0].message.content.trim();
+    } else {
+      throw new Error('Custom Model API returned an empty or unexpected payload structure.');
+    }
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Custom Model API connection timed out (30s).');
+    }
+    throw error;
+  }
+};
 
 /**
  * fetchSmolLMCompletion — Calls the SmolLM3-3B LLM inference API.
@@ -127,8 +213,8 @@ const fetchSmolLMCompletion = async (messages) => {
  * getMockMedicalAnswer — Local keyword-based medical response simulator.
  *
  * Used as a fallback when:
- *   a. SMOLLM_API_KEY is not configured
- *   b. The SmolLM3-3B API call fails for any reason
+ *   a. No API is configured (no custom model, no SMOLLM key)
+ *   b. Both the custom model and SmolLM3-3B API calls fail
  *
  * Performs basic keyword matching against the user's message to route
  * to a relevant canned clinical guidance response. This ensures the app
@@ -191,10 +277,10 @@ const getMockMedicalAnswer = (message, context = '') => {
 /**
  * generateResponse — Main exported function called by chatController.
  *
- * Orchestrates between live AI mode and mock fallback mode:
- *   1. If API key is missing → use mock answer immediately
- *   2. Otherwise → attempt SmolLM3-3B API call
- *   3. If API fails (timeout, auth error, etc.) → silently fall back to mock answer
+ * Orchestrates between three modes (in priority order):
+ *   1. Custom Model (Render-hosted Ollama) — if USE_CUSTOM_MODEL=true
+ *   2. SmolLM / External API              — if SMOLLM_API_KEY is set
+ *   3. Mock fallback                       — if everything else fails
  *
  * The fallback is silent (no error thrown to the user) to ensure a seamless
  * experience even when the AI backend is unavailable.
@@ -209,6 +295,7 @@ const getMockMedicalAnswer = (message, context = '') => {
  * @returns {Promise<string>} The final AI response text to send to the user
  */
 exports.generateResponse = async (chatHistory, context = '') => {
+  const useCustomModel = process.env.USE_CUSTOM_MODEL === 'true';
   const apiKey = process.env.SMOLLM_API_KEY;
   const apiUrl = process.env.SMOLLM_API_URL || '';
   const isLocal = apiUrl.includes('localhost') || apiUrl.includes('127.0.0.1');
@@ -218,36 +305,48 @@ exports.generateResponse = async (chatHistory, context = '') => {
   const lastUserMsgObj = [...chatHistory].reverse().find(msg => msg.sender === 'user');
   const userPrompt = lastUserMsgObj ? lastUserMsgObj.content : '';
 
-  // If no valid API key, skip the network call and use the mock answer immediately
-  if (!isLocal && isKeyPlaceholder) {
-    return getMockMedicalAnswer(userPrompt, context);
+  // Map internal db message format to LLM standard format (user / assistant roles)
+  // 'ai' sender maps to 'assistant' role (OpenAI-compatible convention)
+  const messages = chatHistory.map(msg => ({
+    role: msg.sender === 'ai' ? 'assistant' : 'user',
+    content: msg.content
+  }));
+
+  // Prepend RAG context as a system message (if available)
+  // Placed before conversation messages so the model treats it as background knowledge
+  const initialMessages = [];
+  if (context) {
+    initialMessages.push({
+      role: 'system',
+      content: `Relevant clinical context from patient's uploaded documents:\n${context}\nUse this information if helpful to answer the user's query.`
+    });
   }
 
-  try {
-    // Map internal db message format to LLM standard format (user / assistant roles)
-    // 'ai' sender maps to 'assistant' role (OpenAI-compatible convention)
-    const messages = chatHistory.map(msg => ({
-      role: msg.sender === 'ai' ? 'assistant' : 'user',
-      content: msg.content
-    }));
+  const finalMessages = [...initialMessages, ...messages];
 
-    // Prepend RAG context as a system message (if available)
-    // Placed before conversation messages so the model treats it as background knowledge
-    const initialMessages = [];
-    if (context) {
-      initialMessages.push({
-        role: 'system',
-        content: `Relevant clinical context from patient's uploaded documents:\n${context}\nUse this information if helpful to answer the user's query.`
-      });
+  // ── Mode 1: Custom Model (Render-hosted Ollama) ─────────────────────────
+  if (useCustomModel) {
+    try {
+      console.log('[AI Service] Using Custom Model (Render-hosted Ollama)...');
+      return await fetchCustomModelCompletion(finalMessages);
+    } catch (error) {
+      console.error('[AI Service] Custom Model Error:', error.message);
+      // Fall through to Mode 2 (SmolLM) before giving up to mock
     }
-
-    const finalMessages = [...initialMessages, ...messages];
-
-    return await fetchSmolLMCompletion(finalMessages);
-  } catch (error) {
-    console.error('SmolLM3-3B Integration Error:', error.message);
-    // Fallback to local clinical mock simulation instead of a connection error message
-    // This keeps the user experience intact even when the AI API is down
-    return getMockMedicalAnswer(userPrompt, context);
   }
+
+  // ── Mode 2: SmolLM / External API ──────────────────────────────────────
+  if (isLocal || !isKeyPlaceholder) {
+    try {
+      console.log('[AI Service] Using SmolLM / External API...');
+      return await fetchSmolLMCompletion(finalMessages);
+    } catch (error) {
+      console.error('[AI Service] SmolLM Integration Error:', error.message);
+      // Fall through to Mode 3 (mock)
+    }
+  }
+
+  // ── Mode 3: Mock Fallback ──────────────────────────────────────────────
+  console.log('[AI Service] Using mock fallback answers...');
+  return getMockMedicalAnswer(userPrompt, context);
 };

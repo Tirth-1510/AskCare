@@ -1,0 +1,23 @@
+# ==============================================================================
+# render.yaml — Render Infrastructure-as-Code Blueprint
+# ==============================================================================
+# Defines the Ollama inference service for AskCare.
+# Render reads this file and auto-creates the service on deployment.
+#
+# Documentation: https://docs.render.com/blueprint-spec
+# ==============================================================================
+
+services:
+  # ── Ollama Inference Server (always-on, Docker) ──────────────────────────
+  - type: web
+    name: askcare-ollama
+    runtime: docker
+    region: oregon
+    plan: starter              # Free tier: 0.5 CPU, 512 MiB RAM
+    branch: main
+    dockerfilePath: backend/Dockerfile.ollama
+    dockerContext: ./backend
+    healthCheckPath: /
+    envVars:
+      - key: OLLAMA_HOST
+        value: "0.0.0.0:11434"
