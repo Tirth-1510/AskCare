@@ -1,34 +1,19 @@
 # ==============================================================================
-# Dockerfile — AskCare Ollama Inference Server (Render-compatible)
+# Dockerfile.ollama — AskCare Ollama Inference Server (Render-compatible)
 # ==============================================================================
-# Deploys the custom fine-tuned 'askcare-medical' model on Ollama,
-# exposing an OpenAI-compatible /v1/chat/completions endpoint.
-#
-# IMPORTANT: Render requires the service to listen on the PORT env var.
-# The start.sh script handles this automatically.
-#
-# Build:   docker build -t askcare-ollama -f Dockerfile.ollama .
-# Run:     docker run -p 11434:11434 askcare-ollama
-# ==============================================================================
-
 FROM ollama/ollama:latest
 
-# Install curl for health checks in start.sh
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-
-# Copy the Modelfile that defines the custom model (base + system prompt + params)
+# Copy the Modelfile that defines the custom model
 COPY Modelfile /root/Modelfile
 
-# Copy the training dataset (used during model creation)
+# Copy the training dataset
 COPY medical_dataset.jsonl /root/medical_dataset.jsonl
 
-# Copy the startup script that creates the model on first boot
+# Copy the startup script and fix Windows CRLF line endings
 COPY start.sh /root/start.sh
-RUN chmod +x /root/start.sh
+RUN sed -i 's/\r$//' /root/start.sh && chmod +x /root/start.sh
 
 # Render sets PORT dynamically (usually 10000)
-# The start.sh script reads PORT and sets OLLAMA_HOST accordingly
 EXPOSE 10000
 
-# Use the startup script as the entrypoint
 ENTRYPOINT ["/root/start.sh"]
