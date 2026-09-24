@@ -94,35 +94,13 @@ exports.createOrUpdateChat = async (req, res) => {
       }
     }
 
-    // Auto-extract any permanent patient facts mentioned in this message
-    const newFacts = aiService.extractUserClinicalFacts(userPrompt);
-    if (newFacts && userDoc) {
-      let changed = false;
-      if (newFacts.patientName && userProfile.patientName !== newFacts.patientName) {
-        userProfile.patientName = newFacts.patientName;
-        changed = true;
-      }
-      if (newFacts.allergy && !userProfile.allergies.includes(newFacts.allergy)) {
-        userProfile.allergies.push(newFacts.allergy);
-        changed = true;
-      }
-      if (newFacts.condition && !userProfile.chronicConditions.includes(newFacts.condition)) {
-        userProfile.chronicConditions.push(newFacts.condition);
-        changed = true;
-      }
-      if (newFacts.medication && !userProfile.medications.includes(newFacts.medication)) {
-        userProfile.medications.push(newFacts.medication);
-        changed = true;
-      }
-
-      if (changed) {
-        if (useMongo) {
-          userDoc.clinicalProfile = userProfile;
-          await userDoc.save();
-        } else {
-          db.updateUserById(userId, { clinicalProfile: userProfile });
-        }
-      }
+    // Auto-extract permanent patient facts from this message (Fast NLP Dictionary)
+    let memoryChanged = false;
+    const localFacts = aiService.extractUserClinicalFacts(userPrompt);
+    if (localFacts) {
+      const mergedLocal = aiService.mergeClinicalFacts(userProfile, localFacts);
+      userProfile = mergedLocal.updatedProfile;
+      if (mergedLocal.changed) memoryChanged = true;
     }
 
     let chatHistory = [];
@@ -160,9 +138,28 @@ exports.createOrUpdateChat = async (req, res) => {
     // ── 3. RAG Context Retrieval ──────────────────────────────────────────
     const context = await documentController.retrieveRelevantContext(userId, userPrompt);
 
-    // ── 4. AI Response Generation ─────────────────────────────────────────
-    // Multi-turn consultation history + user clinical memory + document context + dynamic model selection
-    const aiResult = await aiService.generateResponse(chatHistory, context, userProfile, targetModel);
+    // ── 4. AI Response Generation & Deep Clinical Entity Extraction (Parallel) ───
+    const [aiResult, aiFacts] = await Promise.all([
+      aiService.generateResponse(chatHistory, context, userProfile, targetModel),
+      aiService.extractClinicalFactsWithAI(userPrompt)
+    ]);
+
+    // Merge any facts discovered by AI model
+    if (aiFacts) {
+      const mergedAi = aiService.mergeClinicalFacts(userProfile, aiFacts);
+      userProfile = mergedAi.updatedProfile;
+      if (mergedAi.changed) memoryChanged = true;
+    }
+
+    // Persist memory update if changed
+    if (memoryChanged) {
+      if (useMongo) {
+        await User.findByIdAndUpdate(userId, { clinicalProfile: userProfile }, { new: true });
+      } else {
+        db.updateUserById(userId, { clinicalProfile: userProfile });
+      }
+    }
+
     const aiContent = typeof aiResult === 'object' ? aiResult.content : aiResult;
     const modelUsed = (typeof aiResult === 'object' && aiResult.modelUsed) ? aiResult.modelUsed : targetModel;
 
@@ -484,6 +481,69 @@ exports.clearUserMemory = async (req, res) => {
   } catch (error) {
     console.error('Error clearing user memory:', error);
     return res.status(500).json({ success: false, message: 'Failed to clear clinical memory.' });
+  }
+};
+
+/**
+ * syncUserMemoryFromChats — Scans the user's past chats to extract any clinical
+ * facts (allergies, conditions, medications) that were discussed previously.
+ * POST /api/chat/memory/sync
+ */
+exports.syncUserMemoryFromChats = async (req, res) => {
+  const userId = req.user.id;
+  try {
+    let userProfile = { patientName: '', allergies: [], chronicConditions: [], medications: [], memories: [] };
+    let userDoc = null;
+
+    if (useMongo) {
+      userDoc = await User.findById(userId);
+      if (userDoc) {
+        userProfile = userDoc.clinicalProfile ? userDoc.clinicalProfile.toObject() : userProfile;
+        if (!userProfile.patientName && userDoc.name) userProfile.patientName = userDoc.name;
+      }
+    } else {
+      userDoc = db.findUserById(userId);
+      if (userDoc) {
+        userProfile = userDoc.clinicalProfile || userProfile;
+        if (!userProfile.patientName && userDoc.name) userProfile.patientName = userDoc.name;
+      }
+    }
+
+    // Retrieve user's past chats (up to 15 recent chats)
+    let chats = [];
+    if (useMongo) {
+      chats = await Chat.find({ userId }).sort({ updatedAt: -1 }).limit(15);
+    } else {
+      chats = db.getChatsByUser(userId).slice(0, 15);
+    }
+
+    let changed = false;
+    for (const chat of chats) {
+      const messages = chat.messages || [];
+      for (const msg of messages) {
+        if (msg.sender === 'user' && msg.content) {
+          const facts = aiService.extractUserClinicalFacts(msg.content);
+          if (facts) {
+            const merged = aiService.mergeClinicalFacts(userProfile, facts);
+            userProfile = merged.updatedProfile;
+            if (merged.changed) changed = true;
+          }
+        }
+      }
+    }
+
+    if (changed) {
+      if (useMongo) {
+        await User.findByIdAndUpdate(userId, { clinicalProfile: userProfile }, { new: true });
+      } else {
+        db.updateUserById(userId, { clinicalProfile: userProfile });
+      }
+    }
+
+    return res.json({ success: true, memory: userProfile, synced: changed });
+  } catch (error) {
+    console.error('Error syncing user memory:', error);
+    return res.status(500).json({ success: false, message: 'Failed to sync clinical memory from chats.' });
   }
 };
 

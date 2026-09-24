@@ -114,52 +114,324 @@ const buildSystemPrompt = (clinicalMemory = null, ragContext = '') => {
 };
 
 /**
+ * Clinical entity reference dictionaries for robust, zero-latency extraction
+ */
+const CONDITIONS_MAP = [
+  { match: /\b(?:chest\s+pain|pain\s+in\s+(?:my\s+)?chest|heavy\s+(?:and\s+.*)?pain\s+in\s+(?:my\s+)?chest|tightness\s+in\s+chest|heavy\s+chest|chest\s+discomfort)\b/i, name: 'Chest Pain / Discomfort' },
+  { match: /\b(?:dyriaa|diarrhea|diarrhoea|diarhea|watery\s+stool|loose\s+motion|loose\s+stools)\b/i, name: 'Diarrhea' },
+  { match: /\b(?:hypertension|high\s+bp|high\s+blood\s+pressure|mild\s+hypertension|essential\s+hypertension|elevated\s+blood\s+pressure)\b/i, name: 'Hypertension' },
+  { match: /\b(?:type\s+2\s+diabetes|type\s+1\s+diabetes|diabetes|diabetic|high\s+sugar|high\s+blood\s+sugar|hyperglycemia)\b/i, name: 'Diabetes' },
+  { match: /\b(?:asthma|asthmatic|wheezing|respiratory\s+issues|shortness\s+of\s+breath|breathlessness|copd)\b/i, name: 'Asthma / Respiratory' },
+  { match: /\b(?:gerd|acid\s+reflux|heartburn|gastritis|stomach\s+ulcer|hyperacidity)\b/i, name: 'Acid Reflux / GERD' },
+  { match: /\b(?:migraine|migraines|chronic\s+headache|cluster\s+headache)\b/i, name: 'Migraines' },
+  { match: /\b(?:arthritis|joint\s+pain|osteoarthritis|rheumatoid\s+arthritis)\b/i, name: 'Arthritis' },
+  { match: /\b(?:hypothyroid|hyperthyroid|thyroid\s+disorder|hypothyroidism|hyperthyroidism)\b/i, name: 'Thyroid Disorder' },
+  { match: /\b(?:high\s+cholesterol|hyperlipidemia|high\s+lipids|elevated\s+cholesterol)\b/i, name: 'High Cholesterol' },
+  { match: /\b(?:kidney\s+disease|kidney\s+stones|chronic\s+kidney|renal\s+disease)\b/i, name: 'Kidney Disease' },
+  { match: /\b(?:heart\s+disease|coronary\s+artery|angina|arrhythmia|heart\s+condition)\b/i, name: 'Heart Disease' },
+  { match: /\b(?:anxiety|panic\s+attacks|chronic\s+anxiety)\b/i, name: 'Anxiety' },
+  { match: /\b(?:depression|depressive\s+disorder)\b/i, name: 'Depression' },
+  { match: /\b(?:eczema|psoriasis|chronic\s+urticaria|dermatitis)\b/i, name: 'Eczema / Skin Condition' },
+  { match: /\b(?:insomnia|sleep\s+apnea)\b/i, name: 'Insomnia' }
+];
+
+const MEDICATIONS_MAP = [
+  { match: /\b(?:paracetamol|acetaminophen|tylenol|panadol|calpol)\b/i, name: 'Paracetamol' },
+  { match: /\b(?:metformin|glucophage)\b/i, name: 'Metformin' },
+  { match: /\b(?:amlodipine|norvasc)\b/i, name: 'Amlodipine' },
+  { match: /\b(?:lisinopril|zestril|prinivil)\b/i, name: 'Lisinopril' },
+  { match: /\b(?:aspirin|ecotrin|disprin)\b/i, name: 'Aspirin' },
+  { match: /\b(?:ibuprofen|advil|motrin|nurofen)\b/i, name: 'Ibuprofen' },
+  { match: /\b(?:atorvastatin|lipitor)\b/i, name: 'Atorvastatin' },
+  { match: /\b(?:omeprazole|prilosec)\b/i, name: 'Omeprazole' },
+  { match: /\b(?:pantoprazole|protonix)\b/i, name: 'Pantoprazole' },
+  { match: /\b(?:insulin|glargine|humalog|novolog)\b/i, name: 'Insulin' },
+  { match: /\b(?:albuterol|ventolin|salbutamol|inhaler)\b/i, name: 'Albuterol Inhaler' },
+  { match: /\b(?:losartan|cozaar)\b/i, name: 'Losartan' },
+  { match: /\b(?:metoprolol|lopressor|toprol)\b/i, name: 'Metoprolol' },
+  { match: /\b(?:amoxicillin|augmentin)\b/i, name: 'Amoxicillin' },
+  { match: /\b(?:azithromycin|zithromax)\b/i, name: 'Azithromycin' },
+  { match: /\b(?:cetirizine|zyrtec)\b/i, name: 'Cetirizine' },
+  { match: /\b(?:levothyroxine|synthroid)\b/i, name: 'Levothyroxine' },
+  { match: /\b(?:gabapentin|neurontin)\b/i, name: 'Gabapentin' },
+  { match: /\b(?:sertraline|zoloft)\b/i, name: 'Sertraline' }
+];
+
+const ALLERGIES_MAP = [
+  { match: /\b(?:penicillin|amoxicillin)\s+allergy|allergic\s+to\s+(?:penicillin|amoxicillin)\b/i, name: 'Penicillin' },
+  { match: /\b(?:peanut|peanuts)\s+allergy|allergic\s+to\s+peanuts?\b/i, name: 'Peanuts' },
+  { match: /\b(?:sulfa|sulfonamide)\s+allergy|allergic\s+to\s+sulfa\b/i, name: 'Sulfa drugs' },
+  { match: /\b(?:aspirin|nsaids?)\s+allergy|allergic\s+to\s+(?:aspirin|nsaids?)\b/i, name: 'Aspirin / NSAIDs' },
+  { match: /\b(?:shellfish|seafood)\s+allergy|allergic\s+to\s+(?:shellfish|seafood)\b/i, name: 'Shellfish' },
+  { match: /\b(?:dairy|milk|lactose\s+intoleran)/i, name: 'Dairy / Lactose' },
+  { match: /\b(?:gluten|celiac)\b/i, name: 'Gluten' },
+  { match: /\b(?:egg|eggs)\s+allergy|allergic\s+to\s+eggs?\b/i, name: 'Eggs' },
+  { match: /\b(?:dust|pollen|pollen\s+allergy|hay\s+fever)\b/i, name: 'Pollen / Dust' }
+];
+
+/**
  * extractUserClinicalFacts — Automatically extracts persistent patient facts
  * (name, allergies, chronic conditions, medications) from user messages.
  *
  * @param {string} text — The user's input text
- * @returns {Object|null} Extracted facts
+ * @returns {Object|null} Extracted facts with array properties
  */
 const extractUserClinicalFacts = (text) => {
   if (!text) return null;
-  const extracted = {};
   const t = text.trim();
+  const allergies = [];
+  const chronicConditions = [];
+  const medications = [];
+  let patientName = null;
 
-  // Name extraction: "My name is Tirth", "I am Tirth", "Call me Tirth"
+  // 1. Name extraction
   const nameMatch = t.match(/\b(?:my name is|call me|name's)\s+([A-Z][a-zA-Z]+)/i);
   if (nameMatch && nameMatch[1]) {
-    const candidate = nameMatch[1];
-    const excluded = ['here', 'feeling', 'having', 'taking', 'suffering', 'sorry', 'sick', 'allergic', 'asking', 'wondering'];
-    if (!excluded.includes(candidate.toLowerCase())) {
-      extracted.patientName = candidate;
+    const candidate = nameMatch[1].trim();
+    const excluded = ['here', 'feeling', 'having', 'taking', 'suffering', 'sorry', 'sick', 'allergic', 'asking', 'wondering', 'today', 'doctor'];
+    if (!excluded.includes(candidate.toLowerCase()) && candidate.length > 1) {
+      patientName = candidate;
     }
   }
 
-  // Allergy extraction: "allergic to penicillin", "allergy to sulfa", "have a peanut allergy"
-  const allergyMatch = t.match(/\ballerg(?:ic|y)\s+(?:to|with)?\s+([a-zA-Z0-9\s,-]+?)(?:\.|$|,|\band\b)/i);
-  if (allergyMatch && allergyMatch[1]) {
-    const allergy = allergyMatch[1].trim();
-    if (allergy.length > 2 && allergy.length < 50) {
-      extracted.allergy = allergy;
+  // 2. Conditions & active symptoms from dictionary
+  for (const item of CONDITIONS_MAP) {
+    if (item.match.test(t)) {
+      if (!chronicConditions.includes(item.name)) {
+        chronicConditions.push(item.name);
+      }
     }
   }
 
-  // Chronic conditions: "I have asthma", "diagnosed with diabetes", "suffer from hypertension"
-  const conditionMatch = t.match(/\b(?:i have|diagnosed with|i suffer from|history of)\s+(asthma|diabetes|type 1 diabetes|type 2 diabetes|hypertension|high blood pressure|migraines|arthritis|celiac disease|gerd|epilepsy|heart disease|thyroid)\b/i);
-  if (conditionMatch && conditionMatch[1]) {
-    extracted.condition = conditionMatch[1].trim();
-  }
-
-  // Ongoing medications: "I take Metformin", "currently on Lisinopril"
-  const medMatch = t.match(/\b(?:i take|currently taking|prescribed|on medication)\s+([A-Z][a-zA-Z0-9\s]+?)(?:\s+(?:daily|every day|mg|twice)|\.|$|,)/i);
-  if (medMatch && medMatch[1]) {
-    const med = medMatch[1].trim();
-    if (med.length > 2 && med.length < 40) {
-      extracted.medication = med;
+  // Flexible condition pattern: "I have / diagnosed with / suffer from ..." (if not already matched)
+  if (chronicConditions.length === 0) {
+    const flexCond = t.match(/\b(?:i have|i suffer from|diagnosed with|i am diagnosed with|i was diagnosed with|history of|struggling with|dealing with)\s+([a-zA-Z\s]{3,35}?)(?:\.|$|,|\band\b)/i);
+    if (flexCond && flexCond[1]) {
+      const rawCond = flexCond[1].trim();
+      const cleanCond = rawCond.replace(/^(a|an|the|severe|mild|chronic)\s+/i, '').trim();
+      const excluded = ['a question', 'questions', 'doubt', 'concerns', 'idea', 'doctor', 'appointment', 'allergy', 'allergies'];
+      const hasAllergyWord = /\ballerg(?:ic|y)\b/i.test(cleanCond);
+      if (cleanCond.length >= 3 && cleanCond.length <= 35 && !excluded.includes(cleanCond.toLowerCase()) && !hasAllergyWord) {
+        const formatted = cleanCond.charAt(0).toUpperCase() + cleanCond.slice(1);
+        if (!chronicConditions.some(c => c.toLowerCase() === formatted.toLowerCase())) {
+          chronicConditions.push(formatted);
+        }
+      }
     }
   }
 
-  return Object.keys(extracted).length > 0 ? extracted : null;
+  // 3. Medications from dictionary
+  for (const item of MEDICATIONS_MAP) {
+    if (item.match.test(t)) {
+      if (!medications.includes(item.name)) {
+        medications.push(item.name);
+      }
+    }
+  }
+
+  // Flexible medication pattern: "I take / taking / on medication / prescribed ..." (if not already matched)
+  if (medications.length === 0) {
+    const flexMed = t.match(/\b(?:i take|i am taking|i'm taking|currently taking|prescribed|prescribed with|on medication|taking|using)\s+([A-Za-z0-9\s]{3,30}?)(?:\s+(?:daily|every day|twice|once|mg|tablet|pills|syrup)|$|,|\.|\band\b)/i);
+    if (flexMed && flexMed[1]) {
+      const rawMed = flexMed[1].trim();
+      const cleanMed = rawMed.replace(/^(a|an|some|my)\s+/i, '').trim();
+      const excluded = ['medicine', 'medication', 'pills', 'rest', 'care', 'water', 'sleep', 'food', 'tablets'];
+      if (cleanMed.length >= 3 && cleanMed.length <= 30 && !excluded.includes(cleanMed.toLowerCase())) {
+        const formatted = cleanMed.charAt(0).toUpperCase() + cleanMed.slice(1);
+        if (!medications.some(m => m.toLowerCase() === formatted.toLowerCase())) {
+          medications.push(formatted);
+        }
+      }
+    }
+  }
+
+
+  // 4. Allergies from dictionary & patterns
+  for (const item of ALLERGIES_MAP) {
+    if (item.match.test(t)) {
+      if (!allergies.includes(item.name)) {
+        allergies.push(item.name);
+      }
+    }
+  }
+
+  // Flexible allergy pattern: "allergic to ...", "... allergy"
+  const flexAllergy = t.match(/\ballerg(?:ic|y)\s+(?:to|with)?\s+([a-zA-Z0-9\s,-]+?)(?:\.|$|,|\band\b)/i);
+  if (flexAllergy && flexAllergy[1]) {
+    const rawAllergy = flexAllergy[1].trim().replace(/^(a|an|the)\s+/i, '').trim();
+    if (rawAllergy.length >= 3 && rawAllergy.length <= 30) {
+      const formatted = rawAllergy.charAt(0).toUpperCase() + rawAllergy.slice(1);
+      if (!allergies.some(a => a.toLowerCase() === formatted.toLowerCase())) {
+        allergies.push(formatted);
+      }
+    }
+  }
+
+  const hasData = patientName || allergies.length > 0 || chronicConditions.length > 0 || medications.length > 0;
+  if (!hasData) return null;
+
+  return {
+    patientName,
+    allergies,
+    chronicConditions,
+    medications,
+    // Backward compatibility for singular access
+    allergy: allergies[0] || null,
+    condition: chronicConditions[0] || null,
+    medication: medications[0] || null
+  };
+};
+
+/**
+ * mergeClinicalFacts — Safely merges new clinical facts into an existing user profile.
+ * Prevents duplicates (case-insensitive) and updates patientName if newly provided.
+ *
+ * @param {Object} existingProfile
+ * @param {Object} newFacts
+ * @returns {{ updatedProfile: Object, changed: boolean }}
+ */
+const mergeClinicalFacts = (existingProfile, newFacts) => {
+  if (!newFacts) return { updatedProfile: existingProfile, changed: false };
+
+  const updated = {
+    patientName: existingProfile?.patientName || '',
+    allergies: Array.isArray(existingProfile?.allergies) ? [...existingProfile.allergies] : [],
+    chronicConditions: Array.isArray(existingProfile?.chronicConditions) ? [...existingProfile.chronicConditions] : [],
+    medications: Array.isArray(existingProfile?.medications) ? [...existingProfile.medications] : [],
+    memories: Array.isArray(existingProfile?.memories) ? [...existingProfile.memories] : []
+  };
+
+  let changed = false;
+
+  // Patient Name
+  if (newFacts.patientName && typeof newFacts.patientName === 'string' && newFacts.patientName.trim()) {
+    const cleanName = newFacts.patientName.trim();
+    if (updated.patientName !== cleanName) {
+      updated.patientName = cleanName;
+      changed = true;
+    }
+  }
+
+  // Allergies
+  const newAllergies = Array.isArray(newFacts.allergies)
+    ? newFacts.allergies
+    : (newFacts.allergy ? [newFacts.allergy] : []);
+
+  for (const item of newAllergies) {
+    if (typeof item === 'string' && item.trim()) {
+      const clean = item.trim();
+      if (!updated.allergies.some(a => a.toLowerCase() === clean.toLowerCase())) {
+        updated.allergies.push(clean);
+        changed = true;
+      }
+    }
+  }
+
+  // Chronic Conditions
+  const newConditions = Array.isArray(newFacts.chronicConditions)
+    ? newFacts.chronicConditions
+    : (newFacts.condition ? [newFacts.condition] : []);
+
+  for (const item of newConditions) {
+    if (typeof item === 'string' && item.trim()) {
+      const clean = item.trim();
+      if (!updated.chronicConditions.some(c => c.toLowerCase() === clean.toLowerCase())) {
+        updated.chronicConditions.push(clean);
+        changed = true;
+      }
+    }
+  }
+
+  // Medications
+  const newMeds = Array.isArray(newFacts.medications)
+    ? newFacts.medications
+    : (newFacts.medication ? [newFacts.medication] : []);
+
+  for (const item of newMeds) {
+    if (typeof item === 'string' && item.trim()) {
+      const clean = item.trim();
+      if (!updated.medications.some(m => m.toLowerCase() === clean.toLowerCase())) {
+        updated.medications.push(clean);
+        changed = true;
+      }
+    }
+  }
+
+  // General Memories/Notes
+  if (Array.isArray(newFacts.memories)) {
+    for (const item of newFacts.memories) {
+      if (typeof item === 'string' && item.trim()) {
+        const clean = item.trim();
+        if (!updated.memories.some(m => m.toLowerCase() === clean.toLowerCase())) {
+          updated.memories.push(clean);
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return { updatedProfile: updated, changed };
+};
+
+/**
+ * extractClinicalFactsWithAI — High-accuracy LLM extractor using Mistral 7B.
+ * Runs in parallel or asynchronously to extract nuanced clinical background facts.
+ *
+ * @param {string} text — The user's input message
+ * @returns {Promise<Object|null>}
+ */
+const extractClinicalFactsWithAI = async (text) => {
+  if (!text || text.trim().length < 5) return null;
+  const apiKey = process.env.mistral_api || process.env.MISTRAL_API_KEY;
+  if (!apiKey || apiKey.trim() === '' || apiKey.includes('YOUR_')) return null;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000); // 6s fast timeout
+
+    const response = await fetch(process.env.MISTRAL_API_URL || 'https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey.trim()}`
+      },
+      body: JSON.stringify({
+        model: 'open-mistral-7b',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a clinical memory entity extractor. From the user text, identify personal patient background facts (patient name, drug/food allergies, chronic/active health conditions or symptoms, and ongoing medications). Return ONLY a JSON object: {"patientName": string|null, "allergies": string[], "chronicConditions": string[], "medications": string[]}. If none mentioned, return empty arrays. Return NO markdown code blocks or extra text.'
+          },
+          { role: 'user', content: text }
+        ],
+        temperature: 0.1,
+        max_tokens: 200
+      }),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const rawContent = data.choices?.[0]?.message?.content?.trim();
+    if (!rawContent) return null;
+
+    // Clean JSON markdown if wrapped in ```json ... ```
+    const cleanJson = rawContent.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    const parsed = JSON.parse(cleanJson);
+
+    return {
+      patientName: parsed.patientName || null,
+      allergies: Array.isArray(parsed.allergies) ? parsed.allergies : [],
+      chronicConditions: Array.isArray(parsed.chronicConditions) ? parsed.chronicConditions : [],
+      medications: Array.isArray(parsed.medications) ? parsed.medications : []
+    };
+  } catch (err) {
+    // Fail silently so LLM extraction never interferes with regular conversation flow
+    return null;
+  }
 };
 
 /**
@@ -595,4 +867,6 @@ exports.generateResponse = async (chatHistory, context = '', clinicalProfile = n
 
 // Export memory & extraction helpers
 exports.extractUserClinicalFacts = extractUserClinicalFacts;
+exports.mergeClinicalFacts = mergeClinicalFacts;
+exports.extractClinicalFactsWithAI = extractClinicalFactsWithAI;
 exports.buildSystemPrompt = buildSystemPrompt;

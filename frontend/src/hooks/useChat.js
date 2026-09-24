@@ -300,6 +300,32 @@ export const useChat = () => {
     }
   }, []);
 
+  const updateUserMemory = useCallback(async (updates) => {
+    try {
+      const response = await api.put('/chat/memory', updates);
+      if (response.data && response.data.success) {
+        setUserMemory(response.data.memory || null);
+        return response.data.memory;
+      }
+    } catch (err) {
+      console.error('Error updating clinical memory:', err);
+    }
+    return null;
+  }, []);
+
+  const syncUserMemoryFromChats = useCallback(async () => {
+    try {
+      const response = await api.post('/chat/memory/sync');
+      if (response.data && response.data.success) {
+        setUserMemory(response.data.memory || null);
+        return response.data.memory;
+      }
+    } catch (err) {
+      console.error('Error syncing clinical memory from chats:', err);
+    }
+    return null;
+  }, []);
+
   const clearUserMemory = useCallback(async () => {
     try {
       const response = await api.delete('/chat/memory');
@@ -322,6 +348,8 @@ export const useChat = () => {
     userMemory,
     setUserMemory,
     fetchUserMemory,
+    updateUserMemory,
+    syncUserMemoryFromChats,
     clearUserMemory,
     availableModels,
     selectedModel,

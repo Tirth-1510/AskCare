@@ -32,6 +32,7 @@ router.get('/models', chatController.getAvailableModels);     // List available 
 router.get('/memory', chatController.getUserMemory);          // Get user's persistent clinical profile
 router.put('/memory', chatController.updateUserMemory);       // Update user's persistent clinical profile
 router.delete('/memory', chatController.clearUserMemory);     // Clear user's persistent clinical profile
+router.post('/memory/sync', chatController.syncUserMemoryFromChats); // Auto-sync memory from past chat conversations
 
 router.get('/:id', chatController.getChatById);               // Get full details of one chat
 router.delete('/:id', chatController.deleteChat);             // Delete a specific chat
