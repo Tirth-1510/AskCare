@@ -7,8 +7,7 @@ import {
   Send, Sparkles, User, History, LogOut, Activity,
   MessageSquare, AlertCircle, Plus, Menu, X,
   PanelLeftClose, PanelLeftOpen, Edit3, Check, Trash,
-  Brain, ShieldAlert, Pill, HeartPulse, RefreshCw,
-  Zap, Cpu, ShieldCheck, ChevronDown, Sliders
+  Zap, Cpu, ShieldCheck, ChevronDown
 } from 'lucide-react';
 import MarkdownMessage from '../components/MarkdownMessage';
 import ModelSelectorModal from '../components/ModelSelectorModal';
@@ -37,11 +36,7 @@ function Chat() {
     conversations,
     activeChat,
     setActiveChat,
-    userMemory,
     fetchUserMemory,
-    updateUserMemory,
-    syncUserMemoryFromChats,
-    clearUserMemory,
     availableModels,
     selectedModel,
     setSelectedModel,
@@ -56,13 +51,7 @@ function Chat() {
     renameChat
   } = useChat();
 
-  const [memoryModalOpen, setMemoryModalOpen] = useState(false);
-  const [clearingMemory, setClearingMemory] = useState(false);
-  const [syncingMemory, setSyncingMemory] = useState(false);
-  const [addingCategory, setAddingCategory] = useState(null); // 'allergy' | 'condition' | 'medication' | null
-  const [itemInputValue, setItemInputValue] = useState('');
-  const [editingPatientName, setEditingPatientName] = useState(false);
-  const [patientNameInput, setPatientNameInput] = useState('');
+
 
 
 
@@ -279,90 +268,7 @@ function Chat() {
     navigate('/login');
   };
 
-  const handleOpenMemoryModal = () => {
-    fetchUserMemory();
-    setMemoryModalOpen(true);
-  };
 
-  const handleSyncMemory = async () => {
-    setSyncingMemory(true);
-    try {
-      const result = await syncUserMemoryFromChats();
-      if (result) {
-        setModelToast('Clinical memory synced from chat conversations');
-      }
-    } catch (err) {
-      console.error('Error syncing memory:', err);
-    } finally {
-      setSyncingMemory(false);
-    }
-  };
-
-  const handleAddMemoryItem = async (category) => {
-    if (!itemInputValue.trim()) return;
-    const clean = itemInputValue.trim();
-    const current = userMemory || { allergies: [], chronicConditions: [], medications: [] };
-    let updates = {};
-
-    if (category === 'allergy') {
-      const existing = current.allergies || [];
-      if (!existing.some(a => a.toLowerCase() === clean.toLowerCase())) {
-        updates.allergies = [...existing, clean];
-      }
-    } else if (category === 'condition') {
-      const existing = current.chronicConditions || [];
-      if (!existing.some(c => c.toLowerCase() === clean.toLowerCase())) {
-        updates.chronicConditions = [...existing, clean];
-      }
-    } else if (category === 'medication') {
-      const existing = current.medications || [];
-      if (!existing.some(m => m.toLowerCase() === clean.toLowerCase())) {
-        updates.medications = [...existing, clean];
-      }
-    }
-
-    if (Object.keys(updates).length > 0) {
-      await updateUserMemory(updates);
-    }
-    setItemInputValue('');
-    setAddingCategory(null);
-  };
-
-  const handleRemoveMemoryItem = async (category, itemToRemove) => {
-    const current = userMemory || { allergies: [], chronicConditions: [], medications: [] };
-    let updates = {};
-
-    if (category === 'allergy') {
-      updates.allergies = (current.allergies || []).filter(a => a !== itemToRemove);
-    } else if (category === 'condition') {
-      updates.chronicConditions = (current.chronicConditions || []).filter(c => c !== itemToRemove);
-    } else if (category === 'medication') {
-      updates.medications = (current.medications || []).filter(m => m !== itemToRemove);
-    }
-
-    await updateUserMemory(updates);
-  };
-
-  const handleSavePatientName = async () => {
-    if (!patientNameInput.trim()) {
-      setEditingPatientName(false);
-      return;
-    }
-    await updateUserMemory({ patientName: patientNameInput.trim() });
-    setEditingPatientName(false);
-  };
-
-  const handleClearMemory = async () => {
-    setClearingMemory(true);
-    try {
-      await clearUserMemory();
-      setMemoryModalOpen(false);
-    } catch (err) {
-      console.error('Error clearing memory:', err);
-    } finally {
-      setClearingMemory(false);
-    }
-  };
 
   // Render standard sidebar content
   const renderSidebarContent = () => (
@@ -623,26 +529,9 @@ function Chat() {
             </button>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Memory Active Indicator */}
-            <button
-              onClick={handleOpenMemoryModal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-neon/10 hover:bg-brand-neon/20 border border-brand-neon/30 text-brand-neon text-[11px] font-semibold transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
-              title="Click to view remembered clinical facts"
-            >
-              <Brain className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline font-sans">Memory:</span>
-              <span className="font-bold">
-                {userMemory?.patientName ? userMemory.patientName : (user?.name || 'Active')}
-              </span>
-              {(userMemory?.allergies?.length > 0 || userMemory?.chronicConditions?.length > 0 || userMemory?.medications?.length > 0) && (
-                <span className="flex h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
-              )}
-            </button>
-
-            <div className="hidden lg:block text-[9px] md:text-[10px] text-gray-500 font-medium font-sans">
-              Clinical Memory Engine
-            </div>
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#11141C] border border-gray-800 text-[11px] font-medium text-gray-400 select-none">
+            <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+            <span className="hidden sm:inline font-sans">AskCare AI Active</span>
           </div>
         </header>
 
@@ -833,341 +722,7 @@ function Chat() {
         }}
       />
 
-      {/* 5. CLINICAL MEMORY MODAL (ChatGPT-Style User Memory) */}
-      <AnimatePresence>
-        {memoryModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.6 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setMemoryModalOpen(false)}
-              className="fixed inset-0 bg-black backdrop-blur-xs"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              className="relative w-full max-w-lg bg-[#0F131C] border border-gray-800 rounded-2xl shadow-2xl p-6 z-10 font-sans text-white max-h-[85vh] overflow-y-auto"
-            >
-              {/* Modal Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-gray-800/80 mb-4">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-brand-neon/15 border border-brand-neon/30 flex items-center justify-center text-brand-neon">
-                    <Brain className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-white tracking-wide">Patient Clinical Memory</h3>
-                    <p className="text-[11px] text-gray-400">Remembered background across your consultation sessions</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setMemoryModalOpen(false)}
-                  className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
 
-              {/* Memory Cards */}
-              <div className="space-y-3.5 mb-6 text-xs">
-                {/* Patient Name */}
-                <div className="p-3.5 rounded-xl bg-[#161B26] border border-gray-800/80">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-1.5 text-gray-400 text-[11px]">
-                      <User className="w-3.5 h-3.5 text-brand-neon" />
-                      <span>Patient Name</span>
-                    </div>
-                    {!editingPatientName && (
-                      <button
-                        onClick={() => {
-                          setPatientNameInput(userMemory?.patientName || user?.name || '');
-                          setEditingPatientName(true);
-                        }}
-                        className="text-[11px] text-gray-400 hover:text-brand-neon flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <Edit3 className="w-3 h-3" />
-                        <span>Edit</span>
-                      </button>
-                    )}
-                  </div>
-                  {editingPatientName ? (
-                    <div className="flex items-center gap-2 mt-1">
-                      <input
-                        type="text"
-                        value={patientNameInput}
-                        onChange={(e) => setPatientNameInput(e.target.value)}
-                        placeholder="Enter preferred patient name"
-                        className="flex-grow bg-[#0B0E14] border border-brand-neon/60 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSavePatientName();
-                          if (e.key === 'Escape') setEditingPatientName(false);
-                        }}
-                      />
-                      <button
-                        onClick={handleSavePatientName}
-                        className="px-2.5 py-1 rounded-lg bg-brand-neon text-black font-bold text-xs cursor-pointer hover:bg-[#c6f000]"
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => setEditingPatientName(false)}
-                        className="px-2 py-1 text-gray-400 hover:text-white text-xs cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="text-white font-semibold text-sm">
-                      {userMemory?.patientName || user?.name || 'Not specified'}
-                    </div>
-                  )}
-                </div>
-
-                {/* Allergies */}
-                <div className="p-3.5 rounded-xl bg-[#161B26] border border-gray-800/80">
-                  <div className="flex items-center justify-between mb-2 text-[11px]">
-                    <div className="flex items-center gap-1.5 text-amber-400 font-semibold">
-                      <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Allergies & Contraindications</span>
-                    </div>
-                    {addingCategory !== 'allergy' && (
-                      <button
-                        onClick={() => {
-                          setAddingCategory('allergy');
-                          setItemInputValue('');
-                        }}
-                        className="text-[11px] text-amber-400/90 hover:text-amber-300 flex items-center gap-1 cursor-pointer font-medium hover:underline"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>Add</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {addingCategory === 'allergy' && (
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <input
-                        type="text"
-                        value={itemInputValue}
-                        onChange={(e) => setItemInputValue(e.target.value)}
-                        placeholder="e.g. Penicillin, Peanuts, Sulfa drugs..."
-                        className="flex-grow bg-[#0B0E14] border border-amber-400/50 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddMemoryItem('allergy');
-                          if (e.key === 'Escape') setAddingCategory(null);
-                        }}
-                      />
-                      <button
-                        onClick={() => handleAddMemoryItem('allergy')}
-                        className="px-2.5 py-1 rounded-lg bg-amber-400 text-black font-bold text-xs cursor-pointer hover:bg-amber-300"
-                      >
-                        Add
-                      </button>
-                      <button
-                        onClick={() => setAddingCategory(null)}
-                        className="px-2 py-1 text-gray-400 hover:text-white text-xs cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-
-                  {userMemory?.allergies && userMemory.allergies.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {userMemory.allergies.map((allergy, i) => (
-                        <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-red-950/60 border border-red-800/40 text-red-200 text-xs font-medium group">
-                          <span>{allergy}</span>
-                          <button
-                            onClick={() => handleRemoveMemoryItem('allergy', allergy)}
-                            className="text-red-400 hover:text-white hover:bg-red-900/60 rounded p-0.5 cursor-pointer transition-colors"
-                            title={`Remove ${allergy}`}
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-gray-500 italic">No drug or food allergies recorded</span>
-                  )}
-                </div>
-
-                {/* Chronic Conditions */}
-                <div className="p-3.5 rounded-xl bg-[#161B26] border border-gray-800/80">
-                  <div className="flex items-center justify-between mb-2 text-[11px]">
-                    <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
-                      <HeartPulse className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Chronic / Pre-existing Conditions</span>
-                    </div>
-                    {addingCategory !== 'condition' && (
-                      <button
-                        onClick={() => {
-                          setAddingCategory('condition');
-                          setItemInputValue('');
-                        }}
-                        className="text-[11px] text-emerald-400/90 hover:text-emerald-300 flex items-center gap-1 cursor-pointer font-medium hover:underline"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>Add</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {addingCategory === 'condition' && (
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <input
-                        type="text"
-                        value={itemInputValue}
-                        onChange={(e) => setItemInputValue(e.target.value)}
-                        placeholder="e.g. Hypertension, Asthma, Type 2 Diabetes..."
-                        className="flex-grow bg-[#0B0E14] border border-emerald-400/50 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddMemoryItem('condition');
-                          if (e.key === 'Escape') setAddingCategory(null);
-                        }}
-                      />
-                      <button
-                        onClick={() => handleAddMemoryItem('condition')}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-400 text-black font-bold text-xs cursor-pointer hover:bg-emerald-300"
-                      >
-                        Add
-                      </button>
-                      <button
-                        onClick={() => setAddingCategory(null)}
-                        className="px-2 py-1 text-gray-400 hover:text-white text-xs cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-
-                  {userMemory?.chronicConditions && userMemory.chronicConditions.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {userMemory.chronicConditions.map((cond, i) => (
-                        <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-800/40 text-emerald-200 text-xs font-medium group">
-                          <span>{cond}</span>
-                          <button
-                            onClick={() => handleRemoveMemoryItem('condition', cond)}
-                            className="text-emerald-400 hover:text-white hover:bg-emerald-900/60 rounded p-0.5 cursor-pointer transition-colors"
-                            title={`Remove ${cond}`}
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-gray-500 italic">No chronic conditions recorded</span>
-                  )}
-                </div>
-
-                {/* Ongoing Medications */}
-                <div className="p-3.5 rounded-xl bg-[#161B26] border border-gray-800/80">
-                  <div className="flex items-center justify-between mb-2 text-[11px]">
-                    <div className="flex items-center gap-1.5 text-blue-400 font-semibold">
-                      <Pill className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Ongoing Medications</span>
-                    </div>
-                    {addingCategory !== 'medication' && (
-                      <button
-                        onClick={() => {
-                          setAddingCategory('medication');
-                          setItemInputValue('');
-                        }}
-                        className="text-[11px] text-blue-400/90 hover:text-blue-300 flex items-center gap-1 cursor-pointer font-medium hover:underline"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>Add</span>
-                      </button>
-                    )}
-                  </div>
-
-                  {addingCategory === 'medication' && (
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <input
-                        type="text"
-                        value={itemInputValue}
-                        onChange={(e) => setItemInputValue(e.target.value)}
-                        placeholder="e.g. Metformin 500mg, Amlodipine, Paracetamol..."
-                        className="flex-grow bg-[#0B0E14] border border-blue-400/50 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleAddMemoryItem('medication');
-                          if (e.key === 'Escape') setAddingCategory(null);
-                        }}
-                      />
-                      <button
-                        onClick={() => handleAddMemoryItem('medication')}
-                        className="px-2.5 py-1 rounded-lg bg-blue-400 text-black font-bold text-xs cursor-pointer hover:bg-blue-300"
-                      >
-                        Add
-                      </button>
-                      <button
-                        onClick={() => setAddingCategory(null)}
-                        className="px-2 py-1 text-gray-400 hover:text-white text-xs cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-
-                  {userMemory?.medications && userMemory.medications.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {userMemory.medications.map((med, i) => (
-                        <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-950/60 border border-blue-800/40 text-blue-200 text-xs font-medium group">
-                          <span>{med}</span>
-                          <button
-                            onClick={() => handleRemoveMemoryItem('medication', med)}
-                            className="text-blue-400 hover:text-white hover:bg-blue-900/60 rounded p-0.5 cursor-pointer transition-colors"
-                            title={`Remove ${med}`}
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="text-gray-500 italic">No ongoing medications recorded</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Action Footer */}
-              <div className="flex flex-col sm:flex-row items-center justify-between pt-3.5 border-t border-gray-800/80 gap-3">
-                <span className="text-[10px] text-gray-500 flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
-                  Auto-updated when you mention medical facts in chat
-                </span>
-                
-                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                  <button
-                    onClick={handleSyncMemory}
-                    disabled={syncingMemory}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A202C] hover:bg-[#232B3B] border border-gray-700/60 text-gray-200 hover:text-white text-xs font-semibold cursor-pointer transition-all disabled:opacity-50"
-                    title="Scan past chat conversations to auto-extract mentioned medical facts"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${syncingMemory ? 'animate-spin text-brand-neon' : 'text-gray-400'}`} />
-                    <span>{syncingMemory ? 'Syncing...' : 'Sync from Chats'}</span>
-                  </button>
-
-                  <button
-                    onClick={handleClearMemory}
-                    disabled={clearingMemory}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/40 border border-red-800/40 text-red-300 hover:text-red-100 text-xs font-semibold cursor-pointer transition-all disabled:opacity-50"
-                  >
-                    <Trash className="w-3.5 h-3.5" />
-                    <span>{clearingMemory ? 'Clearing...' : 'Clear Memory'}</span>
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Self-contained styling for custom typing animation bouncing */}
       <style>{`
