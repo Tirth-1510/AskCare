@@ -81,6 +81,17 @@ const db = {
   },
 
   /**
+   * Find a user by id.
+   * @param {string} id
+   * @returns {Object|null}
+   */
+  findUserById: (id) => {
+    if (!id) return null;
+    const users = db.getUsers();
+    return users.find(u => u.id === id || (u._id && u._id.toString() === id)) || null;
+  },
+
+  /**
    * Create a new user record and persist it.
    * Auto-generates a timestamp-based id.
    * @param {Object} user — { name, email, password, isVerified, otp, otpExpires }
@@ -96,12 +107,39 @@ const db = {
       isVerified: user.isVerified || false,
       otp: user.otp || null,
       otpExpires: user.otpExpires || null,
+      clinicalProfile: user.clinicalProfile || {
+        patientName: user.name || '',
+        allergies: [],
+        chronicConditions: [],
+        medications: [],
+        memories: []
+      },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     data.users.push(newUser);
     writeData(data);
     return newUser;
+  },
+
+  /**
+   * Apply partial updates to a user identified by id.
+   * @param {string} id
+   * @param {Object} updates
+   * @returns {Object|null}
+   */
+  updateUserById: (id, updates) => {
+    const data = readData();
+    const index = data.users.findIndex(u => u.id === id || (u._id && u._id.toString() === id));
+    if (index === -1) return null;
+
+    data.users[index] = {
+      ...data.users[index],
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+    writeData(data);
+    return data.users[index];
   },
 
   /**
@@ -192,6 +230,7 @@ const db = {
       _id: Date.now().toString(),           // Mirror _id for Mongoose compatibility
       userId: chatData.userId ? chatData.userId.toString() : null,
       title: chatData.title || 'New Chat',
+      model: chatData.model || 'open-mistral-7b',
       messages: chatData.messages || [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()

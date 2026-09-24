@@ -49,6 +49,13 @@ const userSchema = new mongoose.Schema({
   otpExpires: {
     type: Date,
     default: null      // Null when no active OTP challenge; used for expiry check
+  },
+  clinicalProfile: {
+    patientName: { type: String, default: '' },
+    allergies: { type: [String], default: [] },
+    chronicConditions: { type: [String], default: [] },
+    medications: { type: [String], default: [] },
+    memories: { type: [String], default: [] }
   }
 }, {
   timestamps: true   // Auto-manage createdAt and updatedAt fields

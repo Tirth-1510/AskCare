@@ -6,8 +6,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Sparkles, User, History, LogOut, Activity,
   MessageSquare, AlertCircle, Plus, Menu, X,
-  PanelLeftClose, PanelLeftOpen, Edit3, Check, Trash
+  PanelLeftClose, PanelLeftOpen, Edit3, Check, Trash,
+  Brain, ShieldAlert, Pill, HeartPulse, RefreshCw,
+  Zap, Cpu, ShieldCheck, ChevronDown, Sliders
 } from 'lucide-react';
+import MarkdownMessage from '../components/MarkdownMessage';
+import ModelSelectorModal from '../components/ModelSelectorModal';
 
 function Chat() {
   const { user, logout } = useAuth();
@@ -23,11 +27,23 @@ function Chat() {
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [hasAttemptedAutoSelect, setAttemptedAutoSelect] = useState(false);
 
+  // Model Selection Modal & Toast States
+  const [modelModalOpen, setModelModalOpen] = useState(false);
+  const [modelToast, setModelToast] = useState(null);
+
+
   // Use Custom Chat Hook
   const {
     conversations,
     activeChat,
     setActiveChat,
+    userMemory,
+    fetchUserMemory,
+    clearUserMemory,
+    availableModels,
+    selectedModel,
+    setSelectedModel,
+    fetchAvailableModels,
     loading,
     error,
     setError,
@@ -38,31 +54,61 @@ function Chat() {
     renameChat
   } = useChat();
 
+  const [memoryModalOpen, setMemoryModalOpen] = useState(false);
+  const [clearingMemory, setClearingMemory] = useState(false);
+
+
+
+  // Auto-dismiss model switch feedback toast
+  useEffect(() => {
+    if (modelToast) {
+      const timer = setTimeout(() => setModelToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [modelToast]);
+
+  // Storage key uniquely scoped to the authenticated user ID
+  const userStorageKey = user ? `askcare_active_chat_${user.id || user._id}` : 'askcare_active_chat';
+
   const [activeChatId, setActiveChatId] = useState(() => {
-    return localStorage.getItem('askcare_active_chat') || null;
+    return localStorage.getItem(userStorageKey) || null;
   });
 
-  // Load history on mount
+  // When user changes (login/logout/switch), update activeChatId from scoped storage
+  useEffect(() => {
+    if (user) {
+      const saved = localStorage.getItem(`askcare_active_chat_${user.id || user._id}`);
+      setActiveChatId(saved || null);
+    }
+  }, [user]);
+
+  // Load history, available models, and persistent clinical memory on mount
   useEffect(() => {
     fetchHistory().then(() => setHistoryLoaded(true));
-  }, [fetchHistory]);
+    fetchUserMemory();
+    fetchAvailableModels();
+  }, [fetchHistory, fetchUserMemory, fetchAvailableModels]);
 
-  // Load specific chat when activeChatId changes
+
+  // Load specific chat when activeChatId changes (avoids redundant re-fetch if already in state)
   useEffect(() => {
     if (activeChatId) {
-      fetchChatDetails(activeChatId);
-      localStorage.setItem('askcare_active_chat', activeChatId);
+      const currentLoadedId = activeChat ? (activeChat.id || activeChat._id) : null;
+      if (currentLoadedId !== activeChatId) {
+        fetchChatDetails(activeChatId);
+      }
+      localStorage.setItem(userStorageKey, activeChatId);
     } else {
       setActiveChat(null); // Clear the activeChat details so welcome screen renders
-      localStorage.removeItem('askcare_active_chat');
+      localStorage.removeItem(userStorageKey);
     }
-  }, [activeChatId, fetchChatDetails, setActiveChat]);
+  }, [activeChatId, fetchChatDetails, setActiveChat, userStorageKey]);
 
   // Auto-select first chat or load saved chat only ONCE after history has loaded
   useEffect(() => {
     if (historyLoaded && !hasAttemptedAutoSelect) {
       if (conversations.length > 0) {
-        const savedActive = localStorage.getItem('askcare_active_chat');
+        const savedActive = localStorage.getItem(userStorageKey);
         const exists = conversations.some(c => (c.id || c._id) === savedActive);
         if (savedActive && exists) {
           setActiveChatId(savedActive);
@@ -74,7 +120,7 @@ function Chat() {
       }
       setAttemptedAutoSelect(true);
     }
-  }, [historyLoaded, conversations, hasAttemptedAutoSelect]);
+  }, [historyLoaded, conversations, hasAttemptedAutoSelect, userStorageKey]);
 
   // Autoscroll to bottom
   useEffect(() => {
@@ -86,7 +132,8 @@ function Chat() {
     id: 'welcome',
     _id: 'welcome',
     sender: 'ai',
-    content: `Hello ${user?.name || 'there'}! I am AskCare, your SLM-powered clinical query resolution assistant. What symptoms or medical questions can I clarify for you today?`,
+    model: selectedModel,
+    content: `Hello ${user?.name || 'there'}! I am AskCare, your clinical query resolution assistant powered by **Mistral 7B**. What symptoms or medical questions can I clarify for you today? (You can switch models anytime using the engine selector above.)`,
     timestamp: new Date().toISOString(),
   };
 
@@ -99,6 +146,46 @@ function Chat() {
     } catch (e) {
       return timestamp;
     }
+  };
+
+  // Get active model object
+  const currentModelObj = availableModels.find(m => m.id === selectedModel) || availableModels[0] || {
+    id: 'open-mistral-7b',
+    name: 'Mistral 7B Instruct',
+    provider: 'Mistral AI',
+    badge: 'Recommended',
+    speed: 'Ultra Fast',
+    contextWindow: '32k'
+  };
+
+  // Helper for model icons
+  const getModelIcon = (modelId, className = "h-4 w-4") => {
+    if (!modelId) return <Zap className={className} />;
+    const id = modelId.toLowerCase();
+    if (id.includes('7b')) return <Zap className={className} />;
+    if (id.includes('8b')) return <Cpu className={className} />;
+    if (id.includes('small') || id.includes('moe')) return <Brain className={className} />;
+    if (id.includes('smollm') || id.includes('medical') || id.includes('custom')) return <ShieldCheck className={className} />;
+    return <Sparkles className={className} />;
+  };
+
+  // Helper for model badge rendering on message bubbles
+  const getModelBadge = (modelId) => {
+    if (!modelId) return { label: 'Mistral 7B', color: 'text-amber-300 bg-amber-500/10 border-amber-500/25', icon: Zap };
+    const id = modelId.toLowerCase();
+    if (id.includes('7b')) {
+      return { label: 'Mistral 7B', color: 'text-amber-300 bg-amber-500/10 border-amber-500/25', icon: Zap };
+    }
+    if (id.includes('8b')) {
+      return { label: 'Ministral 8B', color: 'text-sky-300 bg-sky-500/10 border-sky-500/25', icon: Cpu };
+    }
+    if (id.includes('small') || id.includes('moe')) {
+      return { label: 'Mistral Small 4', color: 'text-purple-300 bg-purple-500/10 border-purple-500/25', icon: Brain };
+    }
+    if (id.includes('smollm') || id.includes('medical') || id.includes('custom')) {
+      return { label: 'AskCare SLM', color: 'text-emerald-300 bg-emerald-500/10 border-emerald-500/25', icon: ShieldCheck };
+    }
+    return { label: 'Clinical AI', color: 'text-brand-neon bg-brand-neon/10 border-brand-neon/25', icon: Sparkles };
   };
 
   // Get messages list to render (fallback to welcome if empty/new)
@@ -154,7 +241,7 @@ function Chat() {
     setEditingChatId(null);
   };
 
-  // 5. Send Message Logic (interacts with backend)
+  // 5. Send Message Logic (interacts with backend with model selection)
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
     if (!input.trim() || loading) return;
@@ -164,11 +251,13 @@ function Chat() {
     setError(null);
 
     try {
-      // Send message to backend (auto creates chat if activeChatId is null)
-      const updatedChat = await sendMessage(userQuery, activeChatId);
+      // Send message to backend with currently selected model (auto creates chat if activeChatId is null)
+      const updatedChat = await sendMessage(userQuery, activeChatId, selectedModel);
       if (updatedChat) {
         const newId = updatedChat.id || updatedChat._id;
-        setActiveChatId(newId);
+        if (activeChatId !== newId) {
+          setActiveChatId(newId);
+        }
       }
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -176,8 +265,21 @@ function Chat() {
   };
 
   const handleLogout = () => {
+    localStorage.removeItem(userStorageKey);
     logout();
     navigate('/login');
+  };
+
+  const handleClearMemory = async () => {
+    setClearingMemory(true);
+    try {
+      await clearUserMemory();
+      setMemoryModalOpen(false);
+    } catch (err) {
+      console.error('Error clearing memory:', err);
+    } finally {
+      setClearingMemory(false);
+    }
   };
 
   // Render standard sidebar content
@@ -405,21 +507,63 @@ function Chat() {
               </button>
             )}
 
-            <div className="flex items-center gap-2">
+            {/* Prominent Header Model Selector Button */}
+            <button
+              onClick={() => setModelModalOpen(true)}
+              className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[#151926] to-[#111520] hover:from-[#1A2030] hover:to-[#161C2A] border border-gray-800 hover:border-brand-neon/50 text-xs text-white transition-all cursor-pointer shadow-md hover:shadow-brand-neon/10 group"
+              title="Click to view and switch clinical AI engines"
+            >
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-neon opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-neon"></span>
               </span>
-              <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider text-gray-400 font-sans">
-                AskCare SLM Engine v1.0.2
+
+              <span className="flex items-center justify-center h-5 w-5 rounded-lg bg-amber-400/15 text-amber-300 border border-amber-400/30 group-hover:scale-110 transition-transform">
+                {getModelIcon(currentModelObj?.id, "h-3.5 w-3.5 text-amber-400")}
               </span>
-            </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="font-extrabold text-xs tracking-tight text-white font-sans">
+                  {currentModelObj?.name || 'Mistral 7B Instruct'}
+                </span>
+                {currentModelObj?.badge && (
+                  <span className="hidden sm:inline-block px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-brand-neon/15 text-brand-neon border border-brand-neon/30">
+                    {currentModelObj.badge}
+                  </span>
+                )}
+              </div>
+
+              <span className="text-[10px] text-gray-500 font-mono hidden lg:inline">
+                {currentModelObj?.speed}
+              </span>
+
+              <ChevronDown className="h-3.5 w-3.5 text-gray-400 group-hover:text-brand-neon transition-colors" />
+            </button>
           </div>
 
-          <div className="text-[9px] md:text-[10px] text-gray-500 font-medium font-sans">
-            Clinical Guidance System
+          <div className="flex items-center gap-3">
+            {/* Memory Active Indicator */}
+            <button
+              onClick={() => setMemoryModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-neon/10 hover:bg-brand-neon/20 border border-brand-neon/30 text-brand-neon text-[11px] font-semibold transition-all cursor-pointer shadow-sm hover:scale-[1.02]"
+              title="Click to view remembered clinical facts"
+            >
+              <Brain className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline font-sans">Memory:</span>
+              <span className="font-bold">
+                {userMemory?.patientName ? userMemory.patientName : (user?.name || 'Active')}
+              </span>
+              {(userMemory?.allergies?.length > 0 || userMemory?.chronicConditions?.length > 0) && (
+                <span className="flex h-2 w-2 rounded-full bg-amber-400 animate-pulse"></span>
+              )}
+            </button>
+
+            <div className="hidden lg:block text-[9px] md:text-[10px] text-gray-500 font-medium font-sans">
+              Clinical Memory Engine
+            </div>
           </div>
         </header>
+
 
         {/* Message Window Area */}
         <div className="flex-grow overflow-y-auto p-4 md:p-6 space-y-5 bg-[#0B0E14] relative z-10">
@@ -451,21 +595,46 @@ function Chat() {
                     transition={{ duration: 0.3 }}
                     className={`flex w-full ${!isAI ? 'justify-end' : 'justify-start'}`}
                   >
-                    <div className={`max-w-[85%] md:max-w-[75%] rounded-2xl p-4 text-sm font-sans leading-relaxed shadow-lg relative ${!isAI
-                      ? 'bg-[#201947] text-white border border-[#4c3cc2]/20 rounded-tr-none'
-                      : 'bg-[#11141C] text-gray-200 border border-gray-800/80 rounded-tl-none'
+                    <div className={`rounded-2xl leading-relaxed shadow-xl relative transition-all ${!isAI
+                      ? 'max-w-[85%] md:max-w-[75%] p-4 bg-[#201947] text-white border border-[#4c3cc2]/30 rounded-tr-none'
+                      : 'max-w-[95%] sm:max-w-[90%] md:max-w-[85%] p-5 sm:p-6 bg-[#0E121A] text-gray-100 border border-gray-800/90 rounded-tl-none shadow-black/40'
                       }`}>
                       {/* Bubble Metadata Header */}
-                      <div className="flex items-center justify-between gap-6 mb-2 text-[10px] font-bold tracking-wider text-gray-500">
-                        <span className="flex items-center gap-1">
-                          {isAI && <Sparkles className="h-3.5 w-3.5 text-brand-neon" />}
-                          {isAI ? 'ASKCARE AI' : 'YOU'}
+                      <div className="flex items-center justify-between gap-4 mb-3 text-[11px] font-bold tracking-wider text-gray-400 border-b border-gray-800/50 pb-2">
+                        <span className="flex items-center gap-2 flex-wrap">
+                          {isAI ? (
+                            <>
+                              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-brand-neon/10 border border-brand-neon/30 text-brand-neon">
+                                <Sparkles className="h-3 w-3" />
+                              </span>
+                              <span className="text-gray-200 tracking-wide font-bold">ASKCARE CLINICAL AI</span>
+
+                              {/* Model Inference Badge */}
+                              {(() => {
+                                const badgeInfo = getModelBadge(msg.model || (activeChat?.model || selectedModel));
+                                const BadgeIcon = badgeInfo.icon;
+                                return (
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border flex items-center gap-1.5 shadow-sm ${badgeInfo.color}`}>
+                                    <BadgeIcon className="h-2.5 w-2.5" />
+                                    <span>{badgeInfo.label}</span>
+                                  </span>
+                                );
+                              })()}
+                            </>
+                          ) : (
+                            <>
+                              <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-300">
+                                <User className="h-3 w-3" />
+                              </span>
+                              <span className="text-purple-200 tracking-wide font-bold">YOU</span>
+                            </>
+                          )}
                         </span>
-                        <span className="font-light text-gray-500">{formatTime(msg.timestamp)}</span>
+                        <span className="font-normal text-[11px] text-gray-500 shrink-0">{formatTime(msg.timestamp)}</span>
                       </div>
 
                       {/* Message Content */}
-                      <p className="whitespace-pre-wrap text-[13px] sm:text-sm font-sans">{msg.content}</p>
+                      <MarkdownMessage content={msg.content} isAI={isAI} />
                     </div>
                   </motion.div>
                 );
@@ -504,29 +673,208 @@ function Chat() {
         </div>
 
         {/* Input Box Footer */}
-        <footer className="p-4 border-t border-gray-900 bg-[#07090D]/50 backdrop-blur-sm shrink-0 z-20">
+        <footer className="p-3 sm:p-4 border-t border-gray-900 bg-[#07090D]/60 backdrop-blur-md shrink-0 z-20">
           <form
             onSubmit={handleSendMessage}
-            className="max-w-4xl mx-auto flex gap-2 relative items-center"
+            className="max-w-4xl mx-auto"
           >
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about clinical symptoms, medications, or lab diagnostics..."
-              className="w-full bg-[#11141C] border border-gray-800 rounded-xl px-4 py-4 pr-14 text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-brand-neon focus:ring-1 focus:ring-brand-neon/30 transition-all duration-200 font-sans"
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              disabled={loading || !input.trim()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center h-10 w-10 bg-brand-neon hover:bg-[#c6f000] disabled:bg-gray-800/40 text-black disabled:text-gray-600 font-extrabold rounded-xl transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 shadow shadow-brand-neon/10 disabled:shadow-none disabled:scale-100"
-            >
-              <Send className="h-4.5 w-4.5" />
-            </button>
+            {/* Integrated Input Container with Model Switcher on Left */}
+            <div className="relative flex items-center w-full bg-[#11141C] border border-gray-800 focus-within:border-brand-neon focus-within:ring-1 focus-within:ring-brand-neon/30 rounded-2xl p-1.5 sm:p-2 transition-all duration-200 shadow-xl">
+              
+              {/* Left-Side Model Switcher Button - Minimal & Compact */}
+              <button
+                type="button"
+                onClick={() => setModelModalOpen(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#161B26] hover:bg-[#1E2535] border border-gray-700/50 hover:border-brand-neon/50 text-white transition-all cursor-pointer shrink-0 group active:scale-95"
+                title="Switch clinical AI model"
+              >
+                <span className="text-[11px] sm:text-xs font-semibold text-gray-300 group-hover:text-white font-sans max-w-[120px] sm:max-w-none truncate transition-colors">
+                  {currentModelObj?.name || 'Mistral 7B Instruct'}
+                </span>
+
+                <ChevronDown className="h-3 w-3 text-gray-400 group-hover:text-brand-neon transition-colors shrink-0" />
+              </button>
+
+              {/* Elegant Divider */}
+              <div className="h-6 w-px bg-gray-800/80 mx-1.5 sm:mx-2 shrink-0" />
+
+              {/* Message Typing Input */}
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Ask about clinical symptoms, medications, or lab diagnostics..."
+                className="w-full bg-transparent px-1.5 sm:px-2 py-2 text-xs sm:text-sm text-white placeholder-gray-500 focus:outline-none font-sans min-w-0"
+                disabled={loading}
+              />
+
+              {/* Send Button */}
+              <button
+                type="submit"
+                disabled={loading || !input.trim()}
+                className="flex items-center justify-center h-10 w-10 shrink-0 bg-brand-neon hover:bg-[#c6f000] disabled:bg-gray-800/40 text-black disabled:text-gray-600 font-extrabold rounded-xl transition-all duration-200 cursor-pointer hover:scale-105 active:scale-95 shadow shadow-brand-neon/10 disabled:shadow-none disabled:scale-100 ml-1.5"
+                title="Send consultation query"
+              >
+                <Send className="h-4.5 w-4.5" />
+              </button>
+            </div>
           </form>
         </footer>
       </main>
+
+      {/* Floating Model Switch Feedback Toast */}
+      <AnimatePresence>
+        {modelToast && (
+          <motion.div
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            className="fixed top-20 right-6 z-50 flex items-center gap-2.5 px-4 py-2.5 bg-[#141824]/95 border border-brand-neon/40 text-white rounded-xl shadow-2xl backdrop-blur-md text-xs font-semibold"
+          >
+            <Sparkles className="h-4 w-4 text-brand-neon animate-pulse" />
+            <span>{modelToast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 4. CLINICAL MODEL SELECTOR MODAL (Production-Grade Multi-Model Selection) */}
+      <ModelSelectorModal
+        isOpen={modelModalOpen}
+        onClose={() => setModelModalOpen(false)}
+        availableModels={availableModels}
+        selectedModel={selectedModel}
+        onSelectModel={(newModelId) => {
+          setSelectedModel(newModelId);
+          const target = availableModels.find(m => m.id === newModelId);
+          setModelToast(`Active engine switched to ${target?.name || newModelId}`);
+          setModelModalOpen(false);
+        }}
+      />
+
+      {/* 5. CLINICAL MEMORY MODAL (ChatGPT-Style User Memory) */}
+      <AnimatePresence>
+        {memoryModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.6 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMemoryModalOpen(false)}
+              className="fixed inset-0 bg-black backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="relative w-full max-w-lg bg-[#0F131C] border border-gray-800 rounded-2xl shadow-2xl p-6 z-10 font-sans text-white max-h-[85vh] overflow-y-auto"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-4 border-b border-gray-800/80 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-brand-neon/15 border border-brand-neon/30 flex items-center justify-center text-brand-neon">
+                    <Brain className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-white tracking-wide">Patient Clinical Memory</h3>
+                    <p className="text-[11px] text-gray-400">Remembered background across your consultation sessions</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setMemoryModalOpen(false)}
+                  className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Memory Cards */}
+              <div className="space-y-3.5 mb-6 text-xs">
+                {/* Patient Name */}
+                <div className="p-3 rounded-xl bg-[#161B26] border border-gray-800/80">
+                  <div className="flex items-center gap-1.5 text-gray-400 mb-1 text-[11px]">
+                    <User className="w-3.5 h-3.5 text-brand-neon" />
+                    <span>Patient Name</span>
+                  </div>
+                  <div className="text-white font-semibold">
+                    {userMemory?.patientName || user?.name || 'Not specified'}
+                  </div>
+                </div>
+
+                {/* Allergies */}
+                <div className="p-3 rounded-xl bg-[#161B26] border border-gray-800/80">
+                  <div className="flex items-center gap-1.5 text-amber-400 mb-1.5 text-[11px]">
+                    <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="font-semibold">Allergies & Contraindications</span>
+                  </div>
+                  {userMemory?.allergies && userMemory.allergies.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {userMemory.allergies.map((allergy, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md bg-red-950/60 border border-red-800/40 text-red-200 text-[11px] font-medium">
+                          {allergy}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-gray-500 italic">No drug or food allergies recorded</span>
+                  )}
+                </div>
+
+                {/* Chronic Conditions */}
+                <div className="p-3 rounded-xl bg-[#161B26] border border-gray-800/80">
+                  <div className="flex items-center gap-1.5 text-emerald-400 mb-1.5 text-[11px]">
+                    <HeartPulse className="w-3.5 h-3.5 text-emerald-400" />
+                    <span className="font-semibold">Chronic / Pre-existing Conditions</span>
+                  </div>
+                  {userMemory?.chronicConditions && userMemory.chronicConditions.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {userMemory.chronicConditions.map((cond, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-800/40 text-emerald-200 text-[11px] font-medium">
+                          {cond}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-gray-500 italic">No chronic conditions recorded</span>
+                  )}
+                </div>
+
+                {/* Ongoing Medications */}
+                <div className="p-3 rounded-xl bg-[#161B26] border border-gray-800/80">
+                  <div className="flex items-center gap-1.5 text-blue-400 mb-1.5 text-[11px]">
+                    <Pill className="w-3.5 h-3.5 text-blue-400" />
+                    <span className="font-semibold">Ongoing Medications</span>
+                  </div>
+                  {userMemory?.medications && userMemory.medications.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {userMemory.medications.map((med, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-md bg-blue-950/60 border border-blue-800/40 text-blue-200 text-[11px] font-medium">
+                          {med}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-gray-500 italic">No ongoing medications recorded</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Footer */}
+              <div className="flex items-center justify-between pt-3 border-t border-gray-800/80">
+                <span className="text-[10px] text-gray-500">
+                  Auto-updated when you mention medical facts in chat
+                </span>
+                <button
+                  onClick={handleClearMemory}
+                  disabled={clearingMemory}
+                  className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/40 border border-red-800/40 text-red-300 hover:text-red-100 text-xs font-semibold cursor-pointer transition-all disabled:opacity-50"
+                >
+                  {clearingMemory ? 'Clearing...' : 'Clear Memory'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Self-contained styling for custom typing animation bouncing */}
       <style>{`

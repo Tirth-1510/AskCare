@@ -24,6 +24,15 @@ router.use(authMiddleware);
 // Route mappings
 router.post('/', chatController.createOrUpdateChat);          // Send a message (new or continue)
 router.get('/history', chatController.getChatHistory);        // List all past chat sessions
+
+// Clinical AI Models Registry
+router.get('/models', chatController.getAvailableModels);     // List available clinical models
+
+// User Clinical Memory Routes (Placed before /:id)
+router.get('/memory', chatController.getUserMemory);          // Get user's persistent clinical profile
+router.put('/memory', chatController.updateUserMemory);       // Update user's persistent clinical profile
+router.delete('/memory', chatController.clearUserMemory);     // Clear user's persistent clinical profile
+
 router.get('/:id', chatController.getChatById);               // Get full details of one chat
 router.delete('/:id', chatController.deleteChat);             // Delete a specific chat
 router.patch('/:id', chatController.updateChatTitle);         // Rename a chat's title

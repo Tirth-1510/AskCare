@@ -37,6 +37,10 @@ const messageSchema = new mongoose.Schema({
     type: String,
     required: true  // Every message must have text
   },
+  model: {
+    type: String,
+    default: null   // Model that generated this response (e.g. 'open-mistral-7b')
+  },
   timestamp: {
     type: Date,
     default: Date.now  // Records when each message was created
@@ -54,9 +58,14 @@ const chatSchema = new mongoose.Schema({
     type: String,
     default: 'New Chat'  // Overwritten with a snippet of the first user message
   },
+  model: {
+    type: String,
+    default: 'open-mistral-7b'  // Active/selected model for this conversation
+  },
   messages: [messageSchema]  // Embedded message history (no separate collection)
 }, {
   timestamps: true  // Auto-manage createdAt / updatedAt
 });
 
 module.exports = mongoose.model('Chat', chatSchema);
+

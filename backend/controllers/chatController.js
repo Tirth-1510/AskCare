@@ -18,9 +18,11 @@
 
 const mongoose = require('mongoose');
 const Chat = require('../models/Chat');
+const User = require('../models/User');
 const db = require('../db');
 const aiService = require('../services/ai.service');
 const documentController = require('./documentController');
+const { AVAILABLE_MODELS, DEFAULT_MODEL_ID, findModelById } = require('../config/models.config');
 require('dotenv').config();
 
 // ────────────────────────────────────────────────────────────────────────
@@ -48,20 +50,18 @@ const generateTitle = (message) => {
 // 1. Create or Continue Chat — POST /api/chat
 // ════════════════════════════════════════════════════════════════════════
 /**
- * createOrUpdateChat — Core message handler.
+ * createOrUpdateChat — Core message handler with production-grade dual-layer memory.
  *
  * Full pipeline:
- *   a. If chatId is provided, load the existing session and its history.
- *   b. Limit history to the last 10 messages for LLM context window efficiency.
- *   c. Retrieve relevant clinical context from the user's uploaded PDFs via RAG.
- *   d. Send the conversation + context to the AI service (SmolLM3 or mock).
- *   e. Append both the user message and the AI reply to the session.
- *   f. Persist the updated session and return it.
- *
- * If no chatId is provided → a new session is created with an auto-generated title.
+ *   a. Load persistent User Clinical Memory (patient profile, allergies, chronic conditions).
+ *   b. Auto-extract newly mentioned facts (e.g. allergies, conditions, name) from user prompt.
+ *   c. If chatId provided, load existing session and fetch last 20 messages for rich conversational context.
+ *   d. Retrieve RAG document context if available.
+ *   e. Generate clinical response with multi-turn thread memory + user memory.
+ *   f. Persist messages and return updated chat + clinical profile.
  */
 exports.createOrUpdateChat = async (req, res) => {
-  const { message, chatId } = req.body;
+  const { message, chatId, model } = req.body;
   const userId = req.user.id; // Injected by authMiddleware after JWT verification
 
   if (!message || message.trim() === '') {
@@ -72,20 +72,72 @@ exports.createOrUpdateChat = async (req, res) => {
     const userPrompt = message.trim();
     const userMessage = { sender: 'user', content: userPrompt, timestamp: new Date() };
 
+    // ── 1. Load User Clinical Memory (User Layer) ─────────────────────────
+    let userProfile = { patientName: '', allergies: [], chronicConditions: [], medications: [], memories: [] };
+    let userDoc = null;
+
+    if (useMongo) {
+      userDoc = await User.findById(userId);
+      if (userDoc) {
+        userProfile = userDoc.clinicalProfile ? userDoc.clinicalProfile.toObject() : userProfile;
+        if (!userProfile.patientName && userDoc.name) {
+          userProfile.patientName = userDoc.name;
+        }
+      }
+    } else {
+      userDoc = db.findUserById(userId);
+      if (userDoc) {
+        userProfile = userDoc.clinicalProfile || userProfile;
+        if (!userProfile.patientName && userDoc.name) {
+          userProfile.patientName = userDoc.name;
+        }
+      }
+    }
+
+    // Auto-extract any permanent patient facts mentioned in this message
+    const newFacts = aiService.extractUserClinicalFacts(userPrompt);
+    if (newFacts && userDoc) {
+      let changed = false;
+      if (newFacts.patientName && userProfile.patientName !== newFacts.patientName) {
+        userProfile.patientName = newFacts.patientName;
+        changed = true;
+      }
+      if (newFacts.allergy && !userProfile.allergies.includes(newFacts.allergy)) {
+        userProfile.allergies.push(newFacts.allergy);
+        changed = true;
+      }
+      if (newFacts.condition && !userProfile.chronicConditions.includes(newFacts.condition)) {
+        userProfile.chronicConditions.push(newFacts.condition);
+        changed = true;
+      }
+      if (newFacts.medication && !userProfile.medications.includes(newFacts.medication)) {
+        userProfile.medications.push(newFacts.medication);
+        changed = true;
+      }
+
+      if (changed) {
+        if (useMongo) {
+          userDoc.clinicalProfile = userProfile;
+          await userDoc.save();
+        } else {
+          db.updateUserById(userId, { clinicalProfile: userProfile });
+        }
+      }
+    }
+
     let chatHistory = [];
     let chatObj = null;
 
-    // ── A. Load Existing Chat (if continuing a session) ──────────────────
+    // ── 2. Load Existing Chat & Thread History (Chat Layer) ──────────────
     if (chatId) {
       if (useMongo) {
         if (!mongoose.Types.ObjectId.isValid(chatId)) {
           return res.status(400).json({ success: false, message: 'Invalid Chat ID format.' });
         }
-        // findOne with both _id and userId ensures users can only access their own chats
+        // findOne with both _id and userId strictly enforces user isolation
         chatObj = await Chat.findOne({ _id: chatId, userId });
       } else {
         chatObj = db.getChatById(chatId);
-        // Ownership check for local db (Mongoose enforces this via the query predicate above)
         if (chatObj && chatObj.userId.toString() !== userId.toString()) {
           chatObj = null;
         }
@@ -95,41 +147,48 @@ exports.createOrUpdateChat = async (req, res) => {
         return res.status(404).json({ success: false, message: 'Chat session not found.' });
       }
 
-      // Limit history size to last 10 messages for performance and context limits
-      chatHistory = chatObj.messages.slice(-10);
+      // Deep multi-turn context: pass last 20 messages for full conversational recall
+      chatHistory = chatObj.messages.slice(-20);
     }
 
-    // Append current prompt for the LLM (must come after history truncation)
+    // Determine target model (explicit request > existing chat model > system default)
+    const targetModel = model || (chatObj && chatObj.model) || DEFAULT_MODEL_ID;
+
+    // Append current prompt for the LLM
     chatHistory.push(userMessage);
 
-    // ── B. RAG Context Retrieval ──────────────────────────────────────────
-    // Embed the query and find the most semantically similar document chunks
-    // from the user's uploaded PDFs. Returns a string to inject into the prompt.
+    // ── 3. RAG Context Retrieval ──────────────────────────────────────────
     const context = await documentController.retrieveRelevantContext(userId, userPrompt);
 
-    // ── C. AI Response Generation ─────────────────────────────────────────
-    // Call SmolLM3-3B (via Together.xyz API) or fall back to local mock answers
-    const aiResponse = await aiService.generateResponse(chatHistory, context);
-    const aiMessage = { sender: 'ai', content: aiResponse, timestamp: new Date() };
+    // ── 4. AI Response Generation ─────────────────────────────────────────
+    // Multi-turn consultation history + user clinical memory + document context + dynamic model selection
+    const aiResult = await aiService.generateResponse(chatHistory, context, userProfile, targetModel);
+    const aiContent = typeof aiResult === 'object' ? aiResult.content : aiResult;
+    const modelUsed = (typeof aiResult === 'object' && aiResult.modelUsed) ? aiResult.modelUsed : targetModel;
 
-    // ── D. Persist Messages ───────────────────────────────────────────────
+    const aiMessage = {
+      sender: 'ai',
+      content: aiContent,
+      model: modelUsed,
+      timestamp: new Date()
+    };
 
-    // D1. Continue Existing Chat — append both messages and save
+    // ── 5. Persist Messages & Return ──────────────────────────────────────
     if (chatId) {
+      chatObj.messages.push(userMessage);
+      chatObj.messages.push(aiMessage);
+      chatObj.model = targetModel;
+
       if (useMongo) {
-        chatObj.messages.push(userMessage);
-        chatObj.messages.push(aiMessage);
-        await chatObj.save(); // Mongoose auto-updates updatedAt
-        return res.json({ success: true, chat: chatObj });
+        await chatObj.save();
+        return res.json({ success: true, chat: chatObj, modelUsed, clinicalProfile: userProfile });
       } else {
-        chatObj.messages.push(userMessage);
-        chatObj.messages.push(aiMessage);
-        const updatedChat = db.updateChat(chatId, { messages: chatObj.messages });
-        return res.json({ success: true, chat: updatedChat });
+        const updatedChat = db.updateChat(chatId, { messages: chatObj.messages, model: chatObj.model });
+        return res.json({ success: true, chat: updatedChat, modelUsed, clinicalProfile: userProfile });
       }
     }
 
-    // D2. Create New Chat — title comes from the first user message
+    // New Chat Session
     const title = generateTitle(userPrompt);
     const messages = [userMessage, aiMessage];
 
@@ -137,17 +196,19 @@ exports.createOrUpdateChat = async (req, res) => {
       const newChat = new Chat({
         userId,
         title,
+        model: targetModel,
         messages
       });
       await newChat.save();
-      return res.status(201).json({ success: true, chat: newChat });
+      return res.status(201).json({ success: true, chat: newChat, modelUsed, clinicalProfile: userProfile });
     } else {
       const newChat = db.createChat({
         userId,
         title,
+        model: targetModel,
         messages
       });
-      return res.status(201).json({ success: true, chat: newChat });
+      return res.status(201).json({ success: true, chat: newChat, modelUsed, clinicalProfile: userProfile });
     }
   } catch (error) {
     console.error('Error in createOrUpdateChat:', error);
@@ -160,7 +221,7 @@ exports.createOrUpdateChat = async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════
 /**
  * getChatHistory — Returns a lightweight list of the user's past sessions.
- * Includes: id, title, timestamps, message count, and the last message snippet.
+ * Includes: id, title, model, timestamps, message count, and the last message snippet.
  * Sorted by most recently updated (newest first).
  */
 exports.getChatHistory = async (req, res) => {
@@ -170,12 +231,13 @@ exports.getChatHistory = async (req, res) => {
     if (useMongo) {
       const chats = await Chat.find({ userId })
         .sort({ updatedAt: -1 })                               // Newest first
-        .select('_id title createdAt updatedAt messages');     // Only fetch fields we need
+        .select('_id title model createdAt updatedAt messages'); // Only fetch fields we need
 
       // Transform response to include message count and last message snippet
       const history = chats.map(c => ({
         id: c._id,
         title: c.title,
+        model: c.model || 'open-mistral-7b',
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         messageCount: c.messages.length,
@@ -192,6 +254,7 @@ exports.getChatHistory = async (req, res) => {
       const history = chats.map(c => ({
         id: c.id,
         title: c.title,
+        model: c.model || 'open-mistral-7b',
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
         messageCount: c.messages.length,
@@ -200,6 +263,7 @@ exports.getChatHistory = async (req, res) => {
 
       return res.json({ success: true, history });
     }
+
   } catch (error) {
     console.error('Error in getChatHistory:', error);
     return res.status(500).json({ success: false, message: 'Server error while fetching chat history.' });
@@ -336,3 +400,110 @@ exports.updateChatTitle = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error while updating chat title.' });
   }
 };
+
+// ════════════════════════════════════════════════════════════════════════
+// 6. User Clinical Memory Management (User Layer)
+// ════════════════════════════════════════════════════════════════════════
+
+/**
+ * getUserMemory — Returns the authenticated user's persistent clinical memory.
+ */
+exports.getUserMemory = async (req, res) => {
+  const userId = req.user.id;
+  try {
+    let userProfile = { patientName: '', allergies: [], chronicConditions: [], medications: [], memories: [] };
+    if (useMongo) {
+      const user = await User.findById(userId).select('name clinicalProfile');
+      if (user) {
+        userProfile = user.clinicalProfile ? user.clinicalProfile.toObject() : userProfile;
+        if (!userProfile.patientName && user.name) userProfile.patientName = user.name;
+      }
+    } else {
+      const user = db.findUserById(userId);
+      if (user) {
+        userProfile = user.clinicalProfile || userProfile;
+        if (!userProfile.patientName && user.name) userProfile.patientName = user.name;
+      }
+    }
+    return res.json({ success: true, memory: userProfile });
+  } catch (error) {
+    console.error('Error fetching user memory:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve clinical memory.' });
+  }
+};
+
+/**
+ * updateUserMemory — Updates or appends clinical memory items for the user.
+ */
+exports.updateUserMemory = async (req, res) => {
+  const userId = req.user.id;
+  const { patientName, allergies, chronicConditions, medications, memories } = req.body;
+  try {
+    const updates = {};
+    if (patientName !== undefined) updates.patientName = patientName;
+    if (allergies !== undefined) updates.allergies = allergies;
+    if (chronicConditions !== undefined) updates.chronicConditions = chronicConditions;
+    if (medications !== undefined) updates.medications = medications;
+    if (memories !== undefined) updates.memories = memories;
+
+    let updatedProfile = updates;
+    if (useMongo) {
+      const user = await User.findById(userId);
+      if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+      user.clinicalProfile = { ...(user.clinicalProfile ? user.clinicalProfile.toObject() : {}), ...updates };
+      await user.save();
+      updatedProfile = user.clinicalProfile;
+    } else {
+      const user = db.findUserById(userId);
+      if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+      const current = user.clinicalProfile || {};
+      const newProfile = { ...current, ...updates };
+      db.updateUserById(userId, { clinicalProfile: newProfile });
+      updatedProfile = newProfile;
+    }
+    return res.json({ success: true, memory: updatedProfile });
+  } catch (error) {
+    console.error('Error updating user memory:', error);
+    return res.status(500).json({ success: false, message: 'Failed to update clinical memory.' });
+  }
+};
+
+/**
+ * clearUserMemory — Clears the user's clinical memory.
+ */
+exports.clearUserMemory = async (req, res) => {
+  const userId = req.user.id;
+  try {
+    const emptyProfile = { patientName: '', allergies: [], chronicConditions: [], medications: [], memories: [] };
+    if (useMongo) {
+      await User.findByIdAndUpdate(userId, { clinicalProfile: emptyProfile });
+    } else {
+      db.updateUserById(userId, { clinicalProfile: emptyProfile });
+    }
+    return res.json({ success: true, message: 'Clinical memory cleared successfully.', memory: emptyProfile });
+  } catch (error) {
+    console.error('Error clearing user memory:', error);
+    return res.status(500).json({ success: false, message: 'Failed to clear clinical memory.' });
+  }
+};
+
+// ════════════════════════════════════════════════════════════════════════
+// 7. Clinical AI Models Registry — GET /api/chat/models
+// ════════════════════════════════════════════════════════════════════════
+/**
+ * getAvailableModels — Returns the list of clinical AI models available
+ * for user selection in the AskCare consultation interface.
+ */
+exports.getAvailableModels = async (req, res) => {
+  try {
+    return res.json({
+      success: true,
+      defaultModel: DEFAULT_MODEL_ID,
+      models: AVAILABLE_MODELS
+    });
+  } catch (error) {
+    console.error('Error in getAvailableModels:', error);
+    return res.status(500).json({ success: false, message: 'Failed to retrieve available models.' });
+  }
+};
+

@@ -27,8 +27,88 @@ import api from '../utils/api';
 export const useChat = () => {
   const [conversations, setConversations] = useState([]);   // List of all chat summaries
   const [activeChat, setActiveChat] = useState(null);       // Currently open full chat session
+  const [userMemory, setUserMemory] = useState(null);       // Persistent user clinical memory
   const [loading, setLoading] = useState(false);            // Global loading indicator
   const [error, setError] = useState(null);                 // Last error message (or null)
+
+  // Clinical AI Model Registry State
+  const [availableModels, setAvailableModels] = useState([
+    {
+      id: 'open-mistral-7b',
+      name: 'Mistral 7B Instruct',
+      provider: 'Mistral AI',
+      tag: 'Fast & Production Grade',
+      badge: 'Recommended',
+      speed: 'Ultra Fast',
+      contextWindow: '32k',
+      isDefault: true,
+      description: 'Production-grade 7.3B parameter model optimized for rapid, evidence-based clinical reasoning and safety compliance.',
+      icon: 'Zap'
+    },
+    {
+      id: 'ministral-8b-latest',
+      name: 'Ministral 8B',
+      provider: 'Mistral AI',
+      tag: 'Edge Precision',
+      badge: 'High Accuracy',
+      speed: 'Very Fast',
+      contextWindow: '128k',
+      isDefault: false,
+      description: 'State-of-the-art 8B edge model with extended 128k context and superior multi-turn instruction following.',
+      icon: 'Cpu'
+    },
+    {
+      id: 'mistral-small-2603',
+      name: 'Mistral Small 4',
+      provider: 'Mistral AI',
+      tag: 'Deep Reasoning',
+      badge: '119B MoE',
+      speed: 'Balanced',
+      contextWindow: '32k',
+      isDefault: false,
+      description: 'Heavyweight 119B Mixture-of-Experts architecture tailored for complex multi-symptom differential consultations.',
+      icon: 'Brain'
+    },
+    {
+      id: 'askcare-medical',
+      name: 'AskCare SmolLM2 Medical',
+      provider: 'AskCare SLM',
+      tag: 'Specialized SLM',
+      badge: 'Privacy First',
+      speed: 'Fast',
+      contextWindow: '8k',
+      isDefault: false,
+      description: 'Fine-tuned compact clinical assistant for high-privacy, local, or specialized healthcare triage queries.',
+      icon: 'ShieldCheck'
+    }
+  ]);
+
+  // Selected model identifier, persisted in localStorage
+  const [selectedModel, setSelectedModelState] = useState(() => {
+    return localStorage.getItem('askcare_selected_model') || 'open-mistral-7b';
+  });
+
+  const setSelectedModel = useCallback((modelId) => {
+    setSelectedModelState(modelId);
+    try {
+      localStorage.setItem('askcare_selected_model', modelId);
+    } catch (e) {
+      console.warn('Could not persist selected model to localStorage:', e);
+    }
+  }, []);
+
+  // Fetch dynamic models list from server registry
+  const fetchAvailableModels = useCallback(async () => {
+    try {
+      const response = await api.get('/chat/models');
+      if (response.data && response.data.success && response.data.models) {
+        setAvailableModels(response.data.models);
+      }
+    } catch (err) {
+      console.warn('Could not fetch models list from server, using local defaults:', err);
+    }
+  }, []);
+
 
   // ════════════════════════════════════════════════════════════════════
   // 1. Fetch Chat History — GET /api/chat/history
@@ -100,14 +180,19 @@ export const useChat = () => {
    * @returns {Object|undefined} The updated chat object on success
    * @throws Re-throws errors so the Chat component can show inline error messages
    */
-  const sendMessage = useCallback(async (message, chatId = null) => {
+  const sendMessage = useCallback(async (message, chatId = null, modelOverride = null) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.post('/chat', { message, chatId });
+      const modelToUse = modelOverride || selectedModel || 'open-mistral-7b';
+      const response = await api.post('/chat', { message, chatId, model: modelToUse });
       if (response.data && response.data.success) {
         const updatedChat = response.data.chat;
         setActiveChat(updatedChat); // Replace active chat with the server's authoritative copy
+
+        if (response.data.clinicalProfile) {
+          setUserMemory(response.data.clinicalProfile);
+        }
 
         // Refresh history to keep list updated (new session title + updated timestamps)
         await fetchHistory();
@@ -120,7 +205,7 @@ export const useChat = () => {
     } finally {
       setLoading(false);
     }
-  }, [fetchHistory]); // Depends on fetchHistory to refresh the sidebar list
+  }, [fetchHistory, selectedModel]); // Depends on fetchHistory and selectedModel
 
   // ════════════════════════════════════════════════════════════════════
   // 4. Delete Chat — DELETE /api/chat/:id
@@ -201,12 +286,47 @@ export const useChat = () => {
     return false;
   }, [activeChat]);
 
+  // ════════════════════════════════════════════════════════════════════
+  // 6. User Clinical Memory Operations
+  // ════════════════════════════════════════════════════════════════════
+  const fetchUserMemory = useCallback(async () => {
+    try {
+      const response = await api.get('/chat/memory');
+      if (response.data && response.data.success) {
+        setUserMemory(response.data.memory || null);
+      }
+    } catch (err) {
+      console.error('Error fetching clinical memory:', err);
+    }
+  }, []);
+
+  const clearUserMemory = useCallback(async () => {
+    try {
+      const response = await api.delete('/chat/memory');
+      if (response.data && response.data.success) {
+        setUserMemory({ patientName: '', allergies: [], chronicConditions: [], medications: [], memories: [] });
+        return true;
+      }
+    } catch (err) {
+      console.error('Error clearing clinical memory:', err);
+    }
+    return false;
+  }, []);
+
   // Expose all state and operations to consuming components
   return {
     conversations,
     setConversations,
     activeChat,
     setActiveChat,
+    userMemory,
+    setUserMemory,
+    fetchUserMemory,
+    clearUserMemory,
+    availableModels,
+    selectedModel,
+    setSelectedModel,
+    fetchAvailableModels,
     loading,
     error,
     setError,
@@ -219,3 +339,4 @@ export const useChat = () => {
 };
 
 export default useChat;
+
