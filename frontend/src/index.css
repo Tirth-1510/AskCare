@@ -11,7 +11,7 @@ html {
   scroll-behavior: smooth;
 }
 
-/* Production-grade dark scrollbars */
+/* Production-grade scrollbars (Dark Mode Default) */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -25,4 +25,496 @@ html {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #374151;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   GLOBAL THEME TRANSITIONS
+   ───────────────────────────────────────────────────────────── */
+html,
+body,
+nav,
+header,
+main,
+aside,
+footer,
+section {
+  transition-property: background-color, border-color, color;
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PRODUCTION-GRADE LIGHT MODE DESIGN SYSTEM
+   Applied when html tag has class 'light' or data-theme='light'
+   ───────────────────────────────────────────────────────────── */
+html.light,
+[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* 1. Global Canvas & Typography Foundation */
+html.light,
+html.light body,
+[data-theme="light"],
+[data-theme="light"] body {
+  background-color: #F8FAFC !important;
+  color: #0F172A !important;
+}
+
+/* 2. Base Canvas Backgrounds -> Crisp Off-White */
+html.light [class*="bg-[#0B0E14]"],
+html.light [class*="bg-[#07090D]"],
+html.light [class*="bg-[#0E121B]"],
+html.light [class*="bg-[#1E1E1F]"],
+html.light .bg-brand-bg-dark {
+  background-color: #F8FAFC !important;
+}
+
+/* Specific Chat & Sidebar sub-canvases */
+html.light aside[class*="bg-[#07090D]"],
+html.light aside[class*="bg-[#0E121B]"],
+html.light main[class*="bg-[#0B0E14]"] {
+  background-color: #F8FAFC !important;
+}
+
+/* 3. Glassmorphic Navbars, Headers & Floating Bars */
+html.light nav,
+html.light header,
+html.light nav[class*="bg-[#0B0E14]"],
+html.light header[class*="bg-[#0E121B]"],
+html.light [class*="bg-[#0B0E14]/80"],
+html.light [class*="bg-[#0E121B]/40"],
+html.light [class*="bg-[#07090D]/60"] {
+  background-color: rgba(255, 255, 255, 0.88) !important;
+  backdrop-filter: blur(12px) !important;
+  border-color: #E2E8F0 !important;
+}
+
+/* 4. Surfaces, Cards, Dialogs, Accordions & Panel Backgrounds -> Clean White */
+html.light [class*="bg-[#11141C]"],
+html.light [class*="bg-[#181B22]"],
+html.light [class*="bg-[#16181F]"],
+html.light [class*="bg-[#131824]"],
+html.light [class*="bg-[#151926]"],
+html.light [class*="bg-[#20232C]"],
+html.light [class*="bg-[#0E121A]"],
+html.light [class*="bg-[#111317]"],
+html.light [class*="bg-[#161920]"],
+html.light [class*="bg-[#1A2030]"],
+html.light [class*="bg-[#161C2A]"],
+html.light [class*="bg-[#141824]"] {
+  background-color: #FFFFFF !important;
+}
+
+/* 5. Chat Window Architecture in Light Mode */
+/* AI Assistant Bubble -> Clean White with crisp shadow */
+html.light [class*="bg-[#0E121A]"] {
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  color: #1E293B !important;
+  box-shadow: 0 4px 20px -3px rgba(0, 0, 0, 0.05), 0 2px 6px -2px rgba(0, 0, 0, 0.03) !important;
+}
+
+/* User Message Bubble -> Deep Vibrant Indigo for clear visual distinction */
+html.light [class*="bg-[#201947]"].rounded-tr-none {
+  background-color: #4F46E5 !important;
+  border-color: #4338CA !important;
+  color: #FFFFFF !important;
+  box-shadow: 0 4px 15px -3px rgba(79, 70, 229, 0.3) !important;
+}
+html.light [class*="bg-[#201947]"].rounded-tr-none * {
+  color: #FFFFFF !important;
+}
+
+/* Chat Input Bar Footer */
+html.light footer[class*="bg-[#07090D]"] {
+  background-color: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(12px) !important;
+  border-color: #E2E8F0 !important;
+}
+html.light footer [class*="bg-[#11141C]"] {
+  background-color: #FFFFFF !important;
+  border-color: #CBD5E1 !important;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.06) !important;
+}
+html.light footer [class*="bg-[#161B26]"] {
+  background-color: #F1F5F9 !important;
+  border-color: #CBD5E1 !important;
+  color: #334155 !important;
+}
+
+/* Chat Disclaimer Banner */
+html.light [class*="bg-[#11141C]/40"] {
+  background-color: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+  color: #64748B !important;
+}
+
+/* 6. Typography & Text Contrast Hierarchy in Light Mode */
+html.light h1,
+html.light h2,
+html.light h3,
+html.light h4,
+html.light h5,
+html.light h6 {
+  color: #0F172A !important;
+}
+
+/* Headings and primary white text */
+html.light .text-white:not([class*="bg-[#201947]"] *):not(.bg-brand-neon):not(.bg-brand-neon *) {
+  color: #0F172A !important;
+}
+
+/* Secondary & Muted Text Grays */
+html.light .text-gray-100:not([class*="bg-[#201947]"] *),
+html.light .text-gray-200:not([class*="bg-[#201947]"] *) {
+  color: #1E293B !important;
+}
+html.light .text-gray-300:not([class*="bg-[#201947]"] *) {
+  color: #334155 !important;
+}
+html.light .text-gray-400:not([class*="bg-[#201947]"] *) {
+  color: #475569 !important;
+}
+html.light .text-gray-500:not([class*="bg-[#201947]"] *) {
+  color: #64748B !important;
+}
+html.light .text-gray-600 {
+  color: #94A3B8 !important;
+}
+
+/* Maintain dark text on Brand Neon primary CTA buttons */
+html.light .bg-brand-neon,
+html.light .bg-brand-neon * {
+  color: #000000 !important;
+}
+html.light .bg-brand-neon {
+  border: 1px solid rgba(163, 230, 53, 0.7) !important;
+  box-shadow: 0 4px 14px -2px rgba(163, 230, 53, 0.35) !important;
+}
+html.light .text-black {
+  color: #000000 !important;
+}
+
+/* Brand Neon Badges & Highlights on Light Background -> Rich Clinical Emerald */
+html.light .text-brand-neon {
+  color: #15803D !important;
+}
+html.light [class*="text-brand-neon"] svg {
+  color: #15803D !important;
+}
+html.light [class*="bg-brand-neon/10"],
+html.light [class*="bg-brand-neon/15"],
+html.light [class*="bg-brand-neon/20"] {
+  background-color: #ECFDF5 !important;
+  border-color: #A7F3D0 !important;
+  color: #065F46 !important;
+}
+html.light [class*="border-brand-neon/20"],
+html.light [class*="border-brand-neon/30"],
+html.light [class*="border-brand-neon/40"] {
+  border-color: #6EE7B7 !important;
+}
+
+/* Hero Section Headline Gradient in Light Mode -> High-Contrast Navy/Emerald */
+html.light [class*="from-brand-neon"][class*="via-white"][class*="to-brand-neon"],
+html.light .from-brand-neon.via-white.to-brand-neon {
+  background-image: linear-gradient(135deg, #0F172A 0%, #047857 50%, #312E81 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+}
+
+/* 7. CTA Large Banner Card in Light Mode */
+html.light [class*="from-[#201947]"][class*="via-[#0B0E14]"][class*="to-[#181B22]"] {
+  background-image: linear-gradient(135deg, #EEF2FF 0%, #FFFFFF 50%, #F0FDF4 100%) !important;
+  border-color: #CBD5E1 !important;
+  box-shadow: 0 20px 45px -15px rgba(99, 102, 241, 0.15), 0 0 0 1px rgba(226, 232, 240, 0.9) !important;
+}
+html.light [class*="from-[#201947]"] h2 {
+  color: #0F172A !important;
+}
+html.light [class*="from-[#201947]"] p {
+  color: #475569 !important;
+}
+
+/* 8. Global Border Colors in Light Mode */
+html.light [class*="border-gray-800"],
+html.light [class*="border-gray-900"],
+html.light [class*="border-gray-700"],
+html.light [class*="border-gray-950"],
+html.light [class*="border-[#20232C]"] {
+  border-color: #E2E8F0 !important;
+}
+
+/* 9. Interactive Element Hover States */
+html.light [class*="hover:bg-[#181B22]"]:hover,
+html.light [class*="hover:bg-[#20232C]"]:hover,
+html.light [class*="hover:bg-[#1A2030]"]:hover,
+html.light [class*="hover:bg-[#161920]"]:hover,
+html.light [class*="hover:bg-gray-800"]:hover {
+  background-color: #F1F5F9 !important;
+}
+html.light [class*="hover:text-white"]:hover {
+  color: #0F172A !important;
+}
+
+/* Secondary Action Buttons (e.g. "Learn More", "Explore Features", "Sign In") */
+html.light a[class*="bg-[#181B22]"],
+html.light button[class*="bg-[#181B22]"] {
+  background-color: #FFFFFF !important;
+  border-color: #CBD5E1 !important;
+  color: #1E293B !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
+html.light a[class*="bg-[#181B22]"]:hover,
+html.light button[class*="bg-[#181B22]"]:hover {
+  background-color: #F8FAFC !important;
+  border-color: #94A3B8 !important;
+  color: #0F172A !important;
+}
+
+/* Hero Prompt Chips */
+html.light button[class*="bg-[#16181F]"] {
+  background-color: #F1F5F9 !important;
+  border-color: #CBD5E1 !important;
+  color: #334155 !important;
+}
+html.light button[class*="bg-[#16181F]"]:hover {
+  background-color: #E2E8F0 !important;
+  border-color: #94A3B8 !important;
+  color: #0F172A !important;
+}
+
+/* 10. Forms, Inputs & Textareas */
+html.light input:not([type="checkbox"]):not([type="radio"]),
+html.light textarea,
+html.light select {
+  background-color: #F8FAFC !important;
+  color: #0F172A !important;
+  border-color: #CBD5E1 !important;
+}
+html.light input:not([type="checkbox"]):not([type="radio"]):focus,
+html.light textarea:focus,
+html.light select:focus {
+  background-color: #FFFFFF !important;
+  border-color: #10B981 !important;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15) !important;
+}
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94A3B8 !important;
+}
+
+/* 11. Login & Registration Screens */
+/* Left side purple mascot panel -> Elegant Clinical Royal Gradient */
+html.light .bg-brand-bg-purple {
+  background: linear-gradient(145deg, #1E1B4B 0%, #312E81 50%, #4338CA 100%) !important;
+}
+/* Social Login Buttons in Light Mode */
+html.light button[class*="bg-[#111317]"] {
+  background-color: #FFFFFF !important;
+  border-color: #CBD5E1 !important;
+  color: #334155 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+html.light button[class*="bg-[#111317]"]:hover {
+  background-color: #F8FAFC !important;
+  border-color: #94A3B8 !important;
+  color: #0F172A !important;
+}
+/* Checkbox styling */
+html.light span.border-brand-neon.bg-transparent {
+  border-color: #94A3B8 !important;
+}
+/* Auth navigation links */
+html.light button.text-brand-neon,
+html.light a.text-brand-neon {
+  color: #15803D !important;
+}
+html.light button.text-brand-neon:hover,
+html.light a.text-brand-neon:hover {
+  color: #166534 !important;
+}
+
+/* 12. Markdown Message Typography & Clinical Callouts */
+html.light [class*="group/msg"] h1,
+html.light [class*="group/msg"] h2,
+html.light [class*="group/msg"] h3,
+html.light [class*="group/msg"] h4 {
+  color: #0F172A !important;
+  border-color: #E2E8F0 !important;
+}
+html.light [class*="group/msg"] h2 {
+  color: #15803D !important;
+}
+html.light [class*="group/msg"] h3 {
+  color: #0D9488 !important;
+}
+html.light [class*="group/msg"] p {
+  color: #334155 !important;
+}
+html.light [class*="group/msg"] ul,
+html.light [class*="group/msg"] ol,
+html.light [class*="group/msg"] li {
+  color: #334155 !important;
+}
+html.light [class*="group/msg"] strong {
+  color: #0F172A !important;
+  font-weight: 700 !important;
+}
+html.light [class*="group/msg"] code:not(pre code) {
+  background-color: #F1F5F9 !important;
+  color: #166534 !important;
+  border-color: #CBD5E1 !important;
+}
+html.light [class*="group/msg"] pre {
+  background-color: #0F172A !important;
+  color: #F8FAFC !important;
+  border-color: #334155 !important;
+}
+html.light [class*="group/msg"] pre code {
+  color: #F8FAFC !important;
+}
+html.light [class*="group/msg"] blockquote {
+  background-color: #F0FDF4 !important;
+  border-left-color: #22C55E !important;
+  color: #166534 !important;
+}
+
+/* Medical Disclaimer Card */
+html.light [class*="bg-amber-500/10"] {
+  background-color: #FFFBEB !important;
+  border-color: #FDE68A !important;
+  color: #92400E !important;
+}
+html.light [class*="bg-amber-500/10"] span.text-amber-300 {
+  color: #78350F !important;
+}
+html.light [class*="bg-amber-500/10"] svg.text-amber-400 {
+  color: #D97706 !important;
+}
+html.light [class*="bg-amber-500/10"] span.text-gray-300\/90 {
+  color: #92400E !important;
+}
+
+/* 13. Model Selector Dialog in Light Mode */
+html.light [class*="max-w-3xl"][class*="bg-[#0B0E14]"] {
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  color: #0F172A !important;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.2) !important;
+}
+/* Unselected model cards */
+html.light [class*="max-w-3xl"] [class*="bg-[#0E121B]"] {
+  background-color: #F8FAFC !important;
+  border-color: #E2E8F0 !important;
+}
+html.light [class*="max-w-3xl"] [class*="bg-[#0E121B]"]:hover {
+  background-color: #F1F5F9 !important;
+  border-color: #CBD5E1 !important;
+}
+/* Selected model cards */
+html.light [class*="bg-[#17140B]"] {
+  background-color: #FFFBEB !important;
+  border-color: #F59E0B !important;
+}
+html.light [class*="bg-[#0B151F]"] {
+  background-color: #F0F9FF !important;
+  border-color: #0EA5E9 !important;
+}
+html.light [class*="bg-[#150F1F]"] {
+  background-color: #FAF5FF !important;
+  border-color: #A855F7 !important;
+}
+html.light [class*="bg-[#0B1A14]"] {
+  background-color: #ECFDF5 !important;
+  border-color: #10B981 !important;
+}
+
+/* 14. SVG Vector Healthcare Graphics in Light Mode */
+html.light svg path[fill="#181B22"],
+html.light svg polygon[fill="#181B22"] {
+  fill: #FFFFFF !important;
+  stroke: #10B981 !important;
+}
+html.light svg rect[fill="#201947"] {
+  fill: #EEF2FF !important;
+  stroke: #6366F1 !important;
+}
+html.light svg circle[fill="#0B0E14"] {
+  fill: #F1F5F9 !important;
+  stroke: #CBD5E1 !important;
+}
+
+/* 15. Light Mode Shadows & Elevation */
+html.light .shadow-2xl,
+html.light .shadow-xl,
+html.light .shadow-lg {
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.06), 0 4px 12px -3px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* 16. Light Mode Scrollbars & Text Highlight */
+html.light ::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+}
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+/* 17. Page-Specific Enhancements (Chat Header Model Pill, History & Profile) */
+/* Top Header Model Selector Pill in Light Mode */
+html.light button[class*="from-[#151926]"] {
+  background-image: none !important;
+  background-color: #FFFFFF !important;
+  border-color: #CBD5E1 !important;
+  color: #0F172A !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06) !important;
+}
+html.light button[class*="from-[#151926]"]:hover {
+  background-color: #F8FAFC !important;
+  border-color: #94A3B8 !important;
+}
+html.light button[class*="from-[#151926]"] span {
+  color: #0F172A !important;
+}
+html.light button[class*="from-[#151926]"] span.font-mono {
+  color: #64748B !important;
+}
+
+/* Consultation History Cards in Light Mode */
+html.light [class*="from-[#11141D]"] {
+  background-image: none !important;
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.05) !important;
+}
+html.light [class*="from-[#11141D]"]:hover {
+  border-color: #CBD5E1 !important;
+  box-shadow: 0 6px 16px -4px rgba(0, 0, 0, 0.08) !important;
+}
+html.light [class*="from-[#11141D]"] h3 {
+  color: #0F172A !important;
+  font-weight: 600 !important;
+}
+
+/* Profile & History Card Panels in Light Mode */
+html.light [class*="bg-[#121620]"] {
+  background-color: #FFFFFF !important;
+  border-color: #E2E8F0 !important;
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.04) !important;
+}
+html.light [class*="bg-[#121620]"] h2 {
+  color: #0F172A !important;
+  border-color: #E2E8F0 !important;
+}
+html.light main [class*="bg-[#0E121B]"],
+html.light div[class*="bg-[#0E121B]"] {
+  background-color: #F8FAFC !important;
+  border-color: #CBD5E1 !important;
+  color: #0F172A !important;
+}
+
+html.light ::selection {
+  background-color: rgba(163, 230, 53, 0.4);
+  color: #0F172A;
 }

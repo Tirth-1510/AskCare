@@ -23,6 +23,7 @@
 import React, { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import ScrollToTop from './components/ScrollToTop';
 
@@ -55,8 +56,10 @@ const PageLoader = () => (
 
 function App() {
   return (
-    // AuthProvider must wrap the entire router so auth state is available everywhere
-    <AuthProvider>
+    // ThemeProvider provides global dark/light theme state
+    <ThemeProvider>
+      {/* AuthProvider must wrap the entire router so auth state is available everywhere */}
+      <AuthProvider>
       <Router>
         {/* ScrollToTop resets scroll position on route change and handles hash anchors */}
         <ScrollToTop />
@@ -103,6 +106,7 @@ function App() {
         </Suspense>
       </Router>
     </AuthProvider>
+    </ThemeProvider>
   );
 }
 

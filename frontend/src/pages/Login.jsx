@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import robotImg from '../assets/robot.jpg';
 import { signInWithPopup } from 'firebase/auth';
 import { auth, googleProvider } from '../utils/firebase';
+import ThemeToggle from '../components/ThemeToggle';
 
 // SVG Icons
 const EnvelopeIcon = () => (
@@ -684,6 +685,10 @@ function Login() {
 
     return (
         <div className="min-h-screen w-full bg-[#1E1E1F] flex items-center justify-center py-8 px-4 font-sans select-none relative">
+            {/* Top Right Theme Toggle */}
+            <div className="absolute top-4 right-4 z-40">
+                <ThemeToggle />
+            </div>
 
             {/* Toast Notification */}
             {notification && (

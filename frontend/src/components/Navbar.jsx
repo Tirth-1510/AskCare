@@ -30,6 +30,7 @@ import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X, User, LogOut, Activity, MessageSquare, LogIn } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import ThemeToggle from './ThemeToggle';
 
 function Navbar() {
   const navigate = useNavigate();
@@ -90,7 +91,9 @@ function Navbar() {
           </div>
 
           {/* Desktop Action Buttons (hidden on mobile) */}
-          <div className="hidden md:flex items-center gap-4">
+          <div className="hidden md:flex items-center gap-3">
+            {/* Theme Toggle Button */}
+            <ThemeToggle />
             {isAuthenticated ? (
               // ── Authenticated user buttons ──────────────────
               <>
@@ -136,8 +139,9 @@ function Navbar() {
             )}
           </div>
 
-          {/* Mobile Hamburger / Close Button (visible on mobile only) */}
-          <div className="flex md:hidden">
+          {/* Mobile Hamburger / Close Button & Theme Toggle (visible on mobile only) */}
+          <div className="flex md:hidden items-center gap-2">
+            <ThemeToggle compact />
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="inline-flex items-center justify-center rounded-xl p-2 text-gray-400 hover:bg-[#181B22] hover:text-white focus:outline-none transition-colors duration-200 border border-transparent hover:border-gray-800/80 cursor-pointer"
@@ -173,6 +177,10 @@ function Navbar() {
               ))}
               {/* Mobile Action Buttons */}
               <div className="border-t border-gray-800/80 my-4 pt-4 flex flex-col gap-2">
+                <div className="flex items-center justify-between px-1 py-1 mb-1">
+                  <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider font-sans">Theme</span>
+                  <ThemeToggle showLabel />
+                </div>
                 {isAuthenticated ? (
                   <>
                     <button

@@ -6,6 +6,7 @@ import {
   Activity, User, History as HistoryIcon, LogOut, ChevronRight, 
   MessageSquare, Sparkles, Calendar, ArrowLeft, Filter, Trash2, AlertCircle
 } from 'lucide-react';
+import ThemeToggle from '../components/ThemeToggle';
 
 function History() {
   const { user, logout } = useAuth();
@@ -24,9 +25,25 @@ function History() {
       try {
         const response = await api.get('/chat/history');
         if (response.data && response.data.success) {
+          // Helper to strip markdown symbols from consultation snippet preview
+          const cleanSnippet = (text) => {
+            if (!text) return 'New Consultation';
+            return text
+              .replace(/^#+\s+/gm, '')
+              .replace(/\*\*(.*?)\*\*/g, '$1')
+              .replace(/\*(.*?)\*/g, '$1')
+              .replace(/__([^_]+)__/g, '$1')
+              .replace(/_([^_]+)_/g, '$1')
+              .replace(/`{1,3}[^`]*`{1,3}/g, '')
+              .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+              .replace(/\n+/g, ' ')
+              .trim();
+          };
+
           // Map backend history schema to frontend visualization schema
           const mapped = response.data.history.map(c => {
-            const lastMsgContent = c.lastMessage ? c.lastMessage.content : '';
+            const rawContent = c.lastMessage ? c.lastMessage.content : '';
+            const lastMsgContent = cleanSnippet(rawContent);
             return {
               id: c.id || c._id,
               query: lastMsgContent || c.title || 'New Consultation',
@@ -84,7 +101,7 @@ function History() {
       
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-[#0E121B] border-b md:border-b-0 md:border-r border-gray-800/80 flex flex-col shrink-0">
-        <div className="p-4 border-b border-gray-800/80">
+        <div className="p-4 border-b border-gray-800/80 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 group">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-neon/10 border border-brand-neon/30 text-brand-neon group-hover:scale-105 transition-transform duration-200 shadow-sm shadow-brand-neon/20">
               <Activity className="h-5 w-5" />
@@ -93,6 +110,7 @@ function History() {
               AskCare <span className="text-gray-500 font-light">AI Chat</span>
             </span>
           </Link>
+          <ThemeToggle compact />
         </div>
 
         <div className="p-4 border-b border-gray-800/80 flex items-center gap-3 bg-[#131824]/40">

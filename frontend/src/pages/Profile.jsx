@@ -3,8 +3,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
   Activity, User, History, LogOut, ChevronRight, 
-  MessageSquare, Mail, Calendar, ShieldCheck, KeyRound, ArrowLeft
+  MessageSquare, Mail, Calendar, ShieldCheck, KeyRound, ArrowLeft, Sun, Moon
 } from 'lucide-react';
+import ThemeToggle from '../components/ThemeToggle';
 
 function Profile() {
   const { user, token, logout } = useAuth();
@@ -25,7 +26,7 @@ function Profile() {
       
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 bg-[#0E121B] border-b md:border-b-0 md:border-r border-gray-800/80 flex flex-col shrink-0">
-        <div className="p-4 border-b border-gray-800/80">
+        <div className="p-4 border-b border-gray-800/80 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 group">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-neon/10 border border-brand-neon/30 text-brand-neon group-hover:scale-105 transition-transform duration-200 shadow-sm shadow-brand-neon/20">
               <Activity className="h-5 w-5" />
@@ -34,6 +35,7 @@ function Profile() {
               AskCare <span className="text-gray-500 font-light">AI Chat</span>
             </span>
           </Link>
+          <ThemeToggle compact />
         </div>
 
         <div className="p-4 border-b border-gray-800/80 flex items-center gap-3 bg-[#131824]/40">
@@ -194,6 +196,24 @@ function Profile() {
                       <KeyRound className="w-3.5 h-3.5 text-brand-neon shrink-0" />
                       <span className="select-all">{tokenSnippet}</span>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Appearance / Theme Settings Card */}
+              <div className="border border-gray-800/80 bg-[#121620]/30 rounded-2xl p-6 sm:p-8 space-y-6">
+                <h2 className="text-sm font-bold text-white uppercase tracking-wider border-b border-gray-800 pb-3 flex items-center gap-2">
+                  <Sun className="h-4.5 w-4.5 text-brand-neon" />
+                  <span>Display Theme</span>
+                </h2>
+
+                <div className="space-y-4">
+                  <p className="text-xs text-gray-400 font-light leading-relaxed">
+                    Choose your preferred display mode for clinical consultations and interface contrast.
+                  </p>
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-[#0E121B] border border-gray-800">
+                    <span className="text-xs font-semibold text-gray-300">Theme Preference</span>
+                    <ThemeToggle showLabel />
                   </div>
                 </div>
               </div>

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import MarkdownMessage from '../components/MarkdownMessage';
 import ModelSelectorModal from '../components/ModelSelectorModal';
+import ThemeToggle from '../components/ThemeToggle';
 
 function Chat() {
   const { user, logout } = useAuth();
@@ -396,8 +397,12 @@ function Chat() {
           </div>
         </div>
 
-        {/* Secondary Links */}
+        {/* Secondary Links & Theme Toggle */}
         <div className="space-y-1 mb-4">
+          <div className="flex items-center justify-between px-2 py-1 mb-2 border-b border-gray-800/50 pb-2">
+            <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider font-sans">Theme</span>
+            <ThemeToggle showLabel compact />
+          </div>
           <Link
             to="/profile"
             className="flex items-center gap-2.5 text-xs text-gray-400 hover:text-white py-1.5 px-2 rounded-lg hover:bg-gray-800/40 transition-colors"
@@ -529,9 +534,12 @@ function Chat() {
             </button>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#11141C] border border-gray-800 text-[11px] font-medium text-gray-400 select-none">
-            <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
-            <span className="hidden sm:inline font-sans">AskCare AI Active</span>
+          <div className="flex items-center gap-3">
+            <ThemeToggle compact />
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#11141C] border border-gray-800 text-[11px] font-medium text-gray-400 select-none">
+              <span className="h-2 w-2 rounded-full bg-emerald-400"></span>
+              <span className="hidden sm:inline font-sans">AskCare AI Active</span>
+            </div>
           </div>
         </header>
 
