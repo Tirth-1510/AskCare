@@ -11,7 +11,7 @@ function Contact() {
     subject: '',
     message: ''
   });
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -29,7 +29,7 @@ function Contact() {
       setError('Please fill in all required fields.');
       return;
     }
-    
+
     setIsSubmitting(true);
     setError('');
 
@@ -68,7 +68,7 @@ function Contact() {
         <section className="pb-24 px-4 sm:px-6 lg:px-8">
           <div className="max-w-6xl mx-auto">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-              
+
               {/* Left Column: Contact Info (5 cols) */}
               <div className="lg:col-span-5 flex flex-col justify-between gap-8">
                 <div>
@@ -84,8 +84,8 @@ function Contact() {
                       </div>
                       <div>
                         <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide font-sans">Email Support</h4>
-                        <a href="mailto:support@askcare.ai" className="text-sm text-gray-300 hover:text-brand-neon font-semibold transition-colors font-sans">
-                          support@askcare.ai
+                        <a href="mailto:askcare.support@gmail.com" className="text-sm text-gray-300 hover:text-brand-neon font-semibold transition-colors font-sans">
+                          askcare.support@gmail.com
                         </a>
                       </div>
                     </div>
@@ -130,12 +130,12 @@ function Contact() {
               {/* Right Column: Contact Form Card (7 cols) */}
               <div className="lg:col-span-7">
                 <div className="bg-[#11141C] border border-gray-800/80 rounded-2xl p-6 sm:p-8 relative shadow-2xl">
-                  
+
                   {/* Toast-style Alert Inside Card */}
                   {success && (
-                    <motion.div 
-                      initial={{ opacity: 0, y: -10 }} 
-                      animate={{ opacity: 1, y: 0 }} 
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
                       className="mb-6 bg-green-950/80 border border-green-500/30 text-green-200 rounded-xl p-4 flex gap-3 items-center text-xs font-sans"
                     >
                       <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />
