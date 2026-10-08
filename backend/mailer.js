@@ -29,6 +29,21 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6 digits
 }
 
+function getCleanPass() {
+  const raw = process.env.SMTP_PASS || '';
+  return raw.replace(/\s+/g, '').replace(/["']/g, '');
+}
+
+function isSmtpConfigured() {
+  const cleanPass = getCleanPass();
+  return Boolean(
+    process.env.SMTP_HOST &&
+    process.env.SMTP_USER &&
+    cleanPass &&
+    cleanPass !== 'your_gmail_app_password'
+  );
+}
+
 let cachedTransporter = null;
 
 /**
@@ -38,37 +53,41 @@ let cachedTransporter = null;
  * @returns {nodemailer.Transporter}
  */
 function getTransporter() {
+  const cleanPass = getCleanPass();
+  const port = parseInt(process.env.SMTP_PORT || '587');
+  const isSecure = port === 465;
+
   if (process.env.VERCEL) {
     return nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_PORT === '465',
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: port,
+      secure: isSecure,
       auth: {
         user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        pass: cleanPass,
       },
       pool: false,
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 10000,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
   }
 
   if (!cachedTransporter) {
     cachedTransporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_PORT === '465',
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: port,
+      secure: isSecure,
       auth: {
         user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
+        pass: cleanPass,
       },
       pool: true,
       maxConnections: 3,
       maxMessages: 100,
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 10000,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
     });
   }
   return cachedTransporter;
@@ -87,11 +106,7 @@ function getTransporter() {
  * @returns {Promise<{success: boolean, sent: boolean, error?: string}>}
  */
 async function sendOTPEmail(email, otp, purpose = 'Verification') {
-  // Check if SMTP is configured AND the password has been changed from the default placeholder
-  const hasSmtp = process.env.SMTP_HOST &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS &&
-    process.env.SMTP_PASS !== 'your_gmail_app_password'; // Placeholder check
+  const hasSmtp = isSmtpConfigured();
 
   // Always log OTP to console — useful for local testing without real SMTP
   console.log('\n=============================================');
@@ -99,7 +114,7 @@ async function sendOTPEmail(email, otp, purpose = 'Verification') {
   console.log(`👉 PURPOSE: ${purpose}`);
   console.log(`⭐ CODE: ${otp}`);
   if (!hasSmtp) {
-    console.log('💡 TIP: Configure Gmail App Password in .env to send real emails.');
+    console.log('💡 TIP: Configure Gmail App Password in .env / Vercel to send real emails.');
   }
   console.log('=============================================\n');
 
@@ -152,10 +167,7 @@ async function sendOTPEmail(email, otp, purpose = 'Verification') {
  * @returns {Promise<{success: boolean, sent: boolean, error?: string}>}
  */
 async function sendContactEmail({ name, email, subject, message }) {
-  const hasSmtp = process.env.SMTP_HOST &&
-    process.env.SMTP_USER &&
-    process.env.SMTP_PASS &&
-    process.env.SMTP_PASS !== 'your_gmail_app_password';
+  const hasSmtp = isSmtpConfigured();
 
   const sanitizedSubject = subject && subject.trim() ? subject.trim() : 'General Inquiry';
   const supportEmail = process.env.SMTP_FROM || process.env.SMTP_USER || 'askcare.support@gmail.com';
@@ -167,7 +179,8 @@ async function sendContactEmail({ name, email, subject, message }) {
   console.log(`📋 Subject: ${sanitizedSubject}`);
   console.log(`💬 Message: ${message}`);
   if (!hasSmtp) {
-    console.log('💡 TIP: Configure Gmail App Password in .env to send real emails.');
+    console.log('⚠️ [MAILER] SMTP is not configured. Email notification skipped.');
+    console.log(`[MAILER] Details — SMTP_HOST: ${process.env.SMTP_HOST || 'MISSING'}, SMTP_USER: ${process.env.SMTP_USER || 'MISSING'}, SMTP_PASS: ${process.env.SMTP_PASS ? 'SET' : 'MISSING'}`);
   }
   console.log('=============================================\n');
 
@@ -242,28 +255,47 @@ async function sendContactEmail({ name, email, subject, message }) {
         `,
       };
 
-      // Send admin notification
-      await transporter.sendMail(adminMailOptions);
-      console.log(`Admin contact notification sent to ${supportEmail}`);
+      // Concurrently dispatch both emails and await completion so serverless execution is not aborted
+      const [adminResult, userResult] = await Promise.allSettled([
+        transporter.sendMail(adminMailOptions),
+        transporter.sendMail(userReceiptOptions)
+      ]);
 
-      // Send confirmation to user (in background, don't throw if recipient rejects)
-      transporter.sendMail(userReceiptOptions).catch(err => {
-        console.warn(`Could not send confirmation copy to ${email}:`, err.message);
-      });
+      const adminOk = adminResult.status === 'fulfilled';
+      const userOk = userResult.status === 'fulfilled';
 
-      return { success: true, sent: true };
+      if (adminOk) {
+        console.log(`[MAILER] Admin contact notification sent to ${supportEmail}`);
+      } else {
+        console.error('[MAILER] Failed to send admin contact email:', adminResult.reason?.message || adminResult.reason);
+      }
+
+      if (userOk) {
+        console.log(`[MAILER] User confirmation receipt sent to ${email}`);
+      } else {
+        console.warn(`[MAILER] Could not send confirmation copy to ${email}:`, userResult.reason?.message || userResult.reason);
+      }
+
+      return {
+        success: adminOk || userOk,
+        sent: adminOk || userOk,
+        adminSent: adminOk,
+        userSent: userOk,
+        error: !adminOk ? (adminResult.reason?.message || 'Admin email failed') : undefined
+      };
     } catch (error) {
-      console.error('Failed to send contact notification email:', error);
-      return { success: true, sent: false, error: error.message };
+      console.error('[MAILER] Unexpected error during sendContactEmail:', error);
+      return { success: false, sent: false, error: error.message };
     }
   }
 
-  return { success: true, sent: false };
+  return { success: false, sent: false, error: 'SMTP not configured' };
 }
 
 module.exports = {
   generateOTP,
   sendOTPEmail,
-  sendContactEmail
+  sendContactEmail,
+  isSmtpConfigured
 };
 

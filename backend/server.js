@@ -20,7 +20,7 @@ require('dotenv').config();             // Load .env variables into process.env
 const db = require('./db');                                     // Local JSON file-based fallback database
 const User = require('./models/User');                          // Mongoose User model
 const ContactMessage = require('./models/ContactMessage');      // Mongoose ContactMessage model
-const { generateOTP, sendOTPEmail, sendContactEmail } = require('./mailer'); // OTP generation and email sending
+const { generateOTP, sendOTPEmail, sendContactEmail, isSmtpConfigured } = require('./mailer'); // OTP generation and email sending
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -218,8 +218,13 @@ app.get('/api/diagnostics', async (req, res) => {
       PORT: process.env.PORT,
       HAS_MONGODB_URI: !!process.env.MONGODB_URI,
       HAS_JWT_SECRET: !!process.env.JWT_SECRET,
+      HAS_SMTP_HOST: !!process.env.SMTP_HOST,
+      SMTP_HOST: process.env.SMTP_HOST || 'NOT_SET',
+      SMTP_PORT: process.env.SMTP_PORT || 'NOT_SET',
       HAS_SMTP_USER: !!process.env.SMTP_USER,
+      SMTP_USER_MASKED: process.env.SMTP_USER ? process.env.SMTP_USER.replace(/(.{2})(.*)(@.*)/, '$1***$3') : 'NOT_SET',
       HAS_SMTP_PASS: !!process.env.SMTP_PASS,
+      IS_SMTP_CONFIGURED: isSmtpConfigured(),
       HAS_SMOLLM_API_KEY: !!process.env.SMOLLM_API_KEY,
     },
     database: {
@@ -293,16 +298,20 @@ app.post('/api/contact', async (req, res) => {
     // Save to database
     const savedRecord = await dbHelper.saveContactMessage(contactData);
 
-    // Send email notification & user receipt asynchronously (non-blocking for instant UI response)
-    sendContactEmail(contactData).catch(err => {
-      console.error('Background contact email sending error:', err);
-    });
+    // Send email notification & user receipt (must await on serverless so execution is not aborted)
+    let emailStatus = { sent: false };
+    try {
+      emailStatus = await sendContactEmail(contactData);
+    } catch (err) {
+      console.error('Contact email sending error:', err);
+    }
 
     res.json({
       success: true,
       message: 'Thank you! Your message has been sent successfully. We will be in touch soon.',
       data: {
         id: savedRecord._id || savedRecord.id,
+        emailSent: emailStatus.sent,
       }
     });
   } catch (error) {
@@ -360,8 +369,8 @@ app.post('/api/auth/register', async (req, res) => {
         otpExpires
       });
 
-      // Dispatch OTP email asynchronously in background
-      sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
+      // Dispatch OTP email
+      await sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
         console.warn('Registration OTP email warning:', err.message);
       });
       return res.json({ success: true, message: 'Verification OTP sent to email', email });
@@ -381,8 +390,8 @@ app.post('/api/auth/register', async (req, res) => {
       otpExpires
     });
 
-    // Dispatch OTP email asynchronously in background
-    sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
+    // Dispatch OTP email
+    await sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
       console.warn('Registration OTP email warning:', err.message);
     });
 
@@ -533,8 +542,8 @@ app.post('/api/auth/login-otp', async (req, res) => {
       otpExpires
     });
 
-    // Dispatch OTP email asynchronously in background (instant UI response)
-    sendOTPEmail(email, otp, 'Login Authentication').catch(err => {
+    // Dispatch OTP email
+    await sendOTPEmail(email, otp, 'Login Authentication').catch(err => {
       console.warn('Login OTP email warning:', err.message);
     });
 
@@ -672,7 +681,7 @@ app.post('/api/auth/resend-otp', async (req, res) => {
 
     // Use different email subjects for login vs registration
     const emailPurpose = purpose === 'login' ? 'Login Authentication' : 'Registration Verification';
-    sendOTPEmail(email, otp, emailPurpose).catch(err => {
+    await sendOTPEmail(email, otp, emailPurpose).catch(err => {
       console.warn('Resend OTP email warning:', err.message);
     });
 
