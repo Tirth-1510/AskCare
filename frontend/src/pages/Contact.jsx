@@ -3,6 +3,7 @@ import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { Mail, Phone, MapPin, Clock, Send, CheckCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import api from '../utils/api';
 
 function Contact() {
   const [formData, setFormData] = useState({
@@ -25,7 +26,7 @@ function Contact() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.email || !formData.message) {
+    if (!formData.name.trim() || !formData.email.trim() || !formData.message.trim()) {
       setError('Please fill in all required fields.');
       return;
     }
@@ -33,18 +34,19 @@ function Contact() {
     setIsSubmitting(true);
     setError('');
 
-    // Simulate API call
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      setSuccess(true);
+      const response = await api.post('/contact', formData);
+      setSuccess(response.data?.message || "Thank you! Your message has been sent successfully. We'll be in touch soon.");
       setFormData({ name: '', email: '', subject: '', message: '' });
-      setTimeout(() => setSuccess(false), 5000);
+      setTimeout(() => setSuccess(false), 8000);
     } catch (err) {
-      setError('Something went wrong. Please try again.');
+      const errMsg = err.response?.data?.message || 'Something went wrong. Please check your connection and try again.';
+      setError(errMsg);
     } finally {
       setIsSubmitting(false);
     }
   };
+
 
   return (
     <div className="min-h-screen w-full bg-[#0B0E14] text-white font-sans selection:bg-brand-neon/30 selection:text-white flex flex-col justify-between">
@@ -139,7 +141,7 @@ function Contact() {
                       className="mb-6 bg-green-950/80 border border-green-500/30 text-green-200 rounded-xl p-4 flex gap-3 items-center text-xs font-sans"
                     >
                       <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />
-                      <span>Thank you! Your message has been sent successfully. We'll be in touch soon.</span>
+                      <span>{typeof success === 'string' ? success : "Thank you! Your message has been sent successfully. We'll be in touch soon."}</span>
                     </motion.div>
                   )}
 

@@ -29,28 +29,51 @@ function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString(); // 6 digits
 }
 
+let cachedTransporter = null;
+
 /**
  * getTransporter — Builds and returns a nodemailer SMTP transporter instance.
- * A new transporter is created per email send (pool: false) to work correctly
- * in serverless environments where persistent connections are not supported.
+ * In persistent Node environments, reuses a pooled connection for fast delivery.
+ * In serverless (Vercel), creates a fresh lightweight connection.
  * @returns {nodemailer.Transporter}
  */
 function getTransporter() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_PORT === '465', // true for port 465 (SSL), false for STARTTLS (587)
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    // Serverless friendly: open and close connection on each send
-    pool: false,
-    connectionTimeout: 5000, // 5s timeout to connect
-    greetingTimeout: 5000,   // 5s timeout to handshake
-    socketTimeout: 10000,    // 10s socket activity timeout
-  });
+  if (process.env.VERCEL) {
+    return nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_PORT === '465',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      pool: false,
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 10000,
+    });
+  }
+
+  if (!cachedTransporter) {
+    cachedTransporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_PORT === '465',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      pool: true,
+      maxConnections: 3,
+      maxMessages: 100,
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 10000,
+    });
+  }
+  return cachedTransporter;
 }
+
 
 /**
  * sendOTPEmail — Sends a styled OTP email to the given address.
@@ -117,7 +140,130 @@ async function sendOTPEmail(email, otp, purpose = 'Verification') {
   return { success: true, sent: false };
 }
 
+/**
+ * sendContactEmail — Sends notification of a new contact form message to support,
+ * and an acknowledgement receipt back to the sender.
+ *
+ * @param {Object} contact
+ * @param {string} contact.name    — Sender name
+ * @param {string} contact.email   — Sender email
+ * @param {string} contact.subject — Subject of inquiry
+ * @param {string} contact.message — Inquirer message body
+ * @returns {Promise<{success: boolean, sent: boolean, error?: string}>}
+ */
+async function sendContactEmail({ name, email, subject, message }) {
+  const hasSmtp = process.env.SMTP_HOST &&
+    process.env.SMTP_USER &&
+    process.env.SMTP_PASS &&
+    process.env.SMTP_PASS !== 'your_gmail_app_password';
+
+  const sanitizedSubject = subject && subject.trim() ? subject.trim() : 'General Inquiry';
+  const supportEmail = process.env.SMTP_FROM || process.env.SMTP_USER || 'askcare.support@gmail.com';
+
+  console.log('\n=============================================');
+  console.log('📨 CONTACT FORM SUBMISSION RECEIVED:');
+  console.log(`👤 Name: ${name}`);
+  console.log(`📧 Email: ${email}`);
+  console.log(`📋 Subject: ${sanitizedSubject}`);
+  console.log(`💬 Message: ${message}`);
+  if (!hasSmtp) {
+    console.log('💡 TIP: Configure Gmail App Password in .env to send real emails.');
+  }
+  console.log('=============================================\n');
+
+  if (hasSmtp) {
+    try {
+      const transporter = getTransporter();
+
+      // 1. Notify AskCare Admin/Support inbox
+      const adminMailOptions = {
+        from: `"AskCare Contact Form" <${supportEmail}>`,
+        to: supportEmail,
+        replyTo: `"${name}" <${email}>`,
+        subject: `[AskCare Contact] ${sanitizedSubject} — from ${name}`,
+        text: `New contact submission received from ${name} (${email}):\n\nSubject: ${sanitizedSubject}\n\nMessage:\n${message}\n\nSubmitted at: ${new Date().toISOString()}`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #1f2937; border-radius: 12px; background: #0B0E14; color: #f3f4f6;">
+            <div style="border-bottom: 1px solid #1f2937; padding-bottom: 16px; margin-bottom: 20px;">
+              <h2 style="color: #D4FF00; margin: 0 0 6px 0; font-size: 20px;">New Contact Form Message</h2>
+              <span style="color: #9ca3af; font-size: 12px;">Submitted via AskCare Web Portal</span>
+            </div>
+            
+            <div style="background: #11141C; border: 1px solid #1f2937; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+              <p style="margin: 0 0 8px 0; font-size: 14px;"><strong style="color: #9ca3af;">Sender Name:</strong> <span style="color: #ffffff;">${name}</span></p>
+              <p style="margin: 0 0 8px 0; font-size: 14px;"><strong style="color: #9ca3af;">Sender Email:</strong> <a href="mailto:${email}" style="color: #D4FF00; text-decoration: none;">${email}</a></p>
+              <p style="margin: 0; font-size: 14px;"><strong style="color: #9ca3af;">Subject:</strong> <span style="color: #ffffff;">${sanitizedSubject}</span></p>
+            </div>
+
+            <div style="background: #151922; border-left: 4px solid #D4FF00; padding: 16px; border-radius: 4px; margin-bottom: 20px;">
+              <h4 style="margin: 0 0 8px 0; color: #9ca3af; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Message Content</h4>
+              <p style="margin: 0; color: #e5e7eb; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${message}</p>
+            </div>
+
+            <div style="color: #6b7280; font-size: 12px; text-align: center; border-top: 1px solid #1f2937; padding-top: 16px;">
+              Hit "Reply" in your email client to respond directly to ${name} (${email}).
+            </div>
+          </div>
+        `,
+      };
+
+      // 2. Automated Confirmation Receipt to the user
+      const userReceiptOptions = {
+        from: `"AskCare Support" <${supportEmail}>`,
+        to: email,
+        subject: `[AskCare] We received your message: ${sanitizedSubject}`,
+        text: `Hi ${name},\n\nThank you for reaching out to AskCare. We have received your inquiry regarding "${sanitizedSubject}" and our team will get back to you within 24 hours.\n\nBest regards,\nThe AskCare Team`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 550px; margin: auto; padding: 24px; border: 1px solid #1f2937; border-radius: 12px; background: #0B0E14; color: #f3f4f6;">
+            <div style="text-align: center; margin-bottom: 20px;">
+              <h1 style="color: #D4FF00; margin: 0 0 4px 0; font-size: 24px; letter-spacing: -0.5px;">AskCare</h1>
+              <p style="color: #9ca3af; font-size: 13px; margin: 0;">Clinical Intelligence & Support</p>
+            </div>
+
+            <div style="background: #11141C; border: 1px solid #1f2937; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+              <h3 style="color: #ffffff; margin: 0 0 10px 0; font-size: 16px;">Hello ${name},</h3>
+              <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin: 0 0 14px 0;">
+                Thank you for contacting AskCare! We have received your message regarding <strong style="color: #ffffff;">"${sanitizedSubject}"</strong>.
+              </p>
+              <p style="color: #9ca3af; font-size: 14px; line-height: 1.6; margin: 0;">
+                Our support and engineering teams typically respond within 24 hours.
+              </p>
+            </div>
+
+            <div style="background: #151922; border: 1px solid #1f2937; border-radius: 8px; padding: 16px; margin-bottom: 20px;">
+              <h4 style="margin: 0 0 8px 0; color: #6b7280; font-size: 11px; text-transform: uppercase;">Your Submitted Inquiry</h4>
+              <p style="margin: 0; color: #d1d5db; font-size: 13px; line-height: 1.5; white-space: pre-wrap;">${message}</p>
+            </div>
+
+            <p style="color: #6b7280; font-size: 11px; text-align: center; margin: 0;">
+              AskCare Support • <a href="mailto:${supportEmail}" style="color: #D4FF00; text-decoration: none;">${supportEmail}</a>
+            </p>
+          </div>
+        `,
+      };
+
+      // Send admin notification
+      await transporter.sendMail(adminMailOptions);
+      console.log(`Admin contact notification sent to ${supportEmail}`);
+
+      // Send confirmation to user (in background, don't throw if recipient rejects)
+      transporter.sendMail(userReceiptOptions).catch(err => {
+        console.warn(`Could not send confirmation copy to ${email}:`, err.message);
+      });
+
+      return { success: true, sent: true };
+    } catch (error) {
+      console.error('Failed to send contact notification email:', error);
+      return { success: true, sent: false, error: error.message };
+    }
+  }
+
+  return { success: true, sent: false };
+}
+
 module.exports = {
   generateOTP,
-  sendOTPEmail
+  sendOTPEmail,
+  sendContactEmail
 };
+

@@ -19,7 +19,8 @@ require('dotenv').config();             // Load .env variables into process.env
 
 const db = require('./db');                                     // Local JSON file-based fallback database
 const User = require('./models/User');                          // Mongoose User model
-const { generateOTP, sendOTPEmail } = require('./mailer');      // OTP generation and email sending
+const ContactMessage = require('./models/ContactMessage');      // Mongoose ContactMessage model
+const { generateOTP, sendOTPEmail, sendContactEmail } = require('./mailer'); // OTP generation and email sending
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -75,6 +76,13 @@ const connectDB = async () => {
     throw err;
   }
 };
+
+// Pre-warm database connection eagerly on boot to eliminate first-request cold-start latency
+if (useMongo) {
+  connectDB().catch(err => {
+    console.warn('Eager MongoDB connection warning:', err.message);
+  });
+}
 
 // Log which DB mode is active on startup (local development helper)
 if (!useMongo) {
@@ -174,6 +182,18 @@ const dbHelper = {
     } else {
       return db.deleteExpiredUnverifiedUsers(now);
     }
+  },
+
+  /**
+   * Save a contact form message to MongoDB or local db.json.
+   */
+  saveContactMessage: async (contactData) => {
+    if (useMongo) {
+      const msg = new ContactMessage(contactData);
+      return await msg.save();
+    } else {
+      return db.createContactMessage(contactData);
+    }
   }
 };
 
@@ -238,6 +258,64 @@ app.get('/api/diagnostics', async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────────────────
+// Contact Form Endpoint — POST /api/contact
+// ────────────────────────────────────────────────────────────────────────
+// Handles contact messages submitted from the frontend Contact page.
+// 1. Validates input
+// 2. Persists to database (MongoDB or db.json fallback)
+// 3. Delivers email notification to support + receipt to user
+app.post('/api/contact', async (req, res) => {
+  const { name, email, subject, message } = req.body;
+
+  if (!name || !email || !message) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please provide your name, email, and message.'
+    });
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Please provide a valid email address.'
+    });
+  }
+
+  try {
+    const contactData = {
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      subject: subject && subject.trim() ? subject.trim() : 'General Inquiry',
+      message: message.trim()
+    };
+
+    // Save to database
+    const savedRecord = await dbHelper.saveContactMessage(contactData);
+
+    // Send email notification & user receipt asynchronously (non-blocking for instant UI response)
+    sendContactEmail(contactData).catch(err => {
+      console.error('Background contact email sending error:', err);
+    });
+
+    res.json({
+      success: true,
+      message: 'Thank you! Your message has been sent successfully. We will be in touch soon.',
+      data: {
+        id: savedRecord._id || savedRecord.id,
+      }
+    });
+  } catch (error) {
+    console.error('Contact endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to submit contact message. Please try again later.',
+      error: error.message
+    });
+  }
+});
+
+// ────────────────────────────────────────────────────────────────────────
 // 1. Register User — POST /api/auth/register
 // ────────────────────────────────────────────────────────────────────────
 // Flow:
@@ -282,10 +360,10 @@ app.post('/api/auth/register', async (req, res) => {
         otpExpires
       });
 
-      const emailResult = await sendOTPEmail(email, otp, 'Registration Verification');
-      if (emailResult.error) {
-        console.warn('Registration OTP email warning:', emailResult.error);
-      }
+      // Dispatch OTP email asynchronously in background
+      sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
+        console.warn('Registration OTP email warning:', err.message);
+      });
       return res.json({ success: true, message: 'Verification OTP sent to email', email });
     }
 
@@ -303,10 +381,10 @@ app.post('/api/auth/register', async (req, res) => {
       otpExpires
     });
 
-    const emailResult = await sendOTPEmail(email, otp, 'Registration Verification');
-    if (emailResult.error) {
-      console.warn('Registration OTP email warning:', emailResult.error);
-    }
+    // Dispatch OTP email asynchronously in background
+    sendOTPEmail(email, otp, 'Registration Verification').catch(err => {
+      console.warn('Registration OTP email warning:', err.message);
+    });
 
     res.json({ success: true, message: 'Registration initiated. Verification OTP sent to email', email });
   } catch (error) {
@@ -396,8 +474,8 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Compare the submitted plain-text password against the bcrypt hash
-    const passwordMatch = bcrypt.compareSync(password, user.password);
+    // Compare the submitted plain-text password against the bcrypt hash asynchronously
+    const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
       return res.status(400).json({ success: false, message: 'Invalid email or password' });
     }
@@ -455,10 +533,10 @@ app.post('/api/auth/login-otp', async (req, res) => {
       otpExpires
     });
 
-    const emailResult = await sendOTPEmail(email, otp, 'Login Authentication');
-    if (emailResult.error) {
-      console.warn('Login OTP email warning:', emailResult.error);
-    }
+    // Dispatch OTP email asynchronously in background (instant UI response)
+    sendOTPEmail(email, otp, 'Login Authentication').catch(err => {
+      console.warn('Login OTP email warning:', err.message);
+    });
 
     res.json({ success: true, message: 'Login OTP sent to email', email });
   } catch (error) {
@@ -594,10 +672,9 @@ app.post('/api/auth/resend-otp', async (req, res) => {
 
     // Use different email subjects for login vs registration
     const emailPurpose = purpose === 'login' ? 'Login Authentication' : 'Registration Verification';
-    const emailResult = await sendOTPEmail(email, otp, emailPurpose);
-    if (emailResult.error) {
-      console.warn('Resend OTP email warning:', emailResult.error);
-    }
+    sendOTPEmail(email, otp, emailPurpose).catch(err => {
+      console.warn('Resend OTP email warning:', err.message);
+    });
 
     res.json({ success: true, message: 'A new code has been sent to your email.' });
   } catch (error) {

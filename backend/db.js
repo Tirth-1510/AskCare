@@ -406,7 +406,45 @@ const db = {
     data.chunks.push(newChunk);
     writeData(data);
     return newChunk;
+  },
+
+  // ──────────────────────────────────────────
+  // CONTACT MESSAGES OPERATIONS
+  // ──────────────────────────────────────────
+
+  /**
+   * Save a contact form message.
+   * @param {Object} messageData — { name, email, subject, message }
+   * @returns {Object} Newly saved message record
+   */
+  createContactMessage: (messageData) => {
+    const data = readData();
+    if (!data.contactMessages) data.contactMessages = [];
+
+    const newMessage = {
+      id: Date.now().toString(),
+      _id: Date.now().toString(),
+      name: messageData.name,
+      email: messageData.email ? messageData.email.toLowerCase() : '',
+      subject: messageData.subject || 'General Inquiry',
+      message: messageData.message,
+      status: 'new',
+      createdAt: new Date().toISOString()
+    };
+
+    data.contactMessages.push(newMessage);
+    writeData(data);
+    return newMessage;
+  },
+
+  /**
+   * Get all contact form messages.
+   * @returns {Array} List of contact messages
+   */
+  getContactMessages: () => {
+    return readData().contactMessages || [];
   }
 };
 
 module.exports = db;
+
